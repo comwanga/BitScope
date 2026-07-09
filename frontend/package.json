@@ -1,0 +1,25 @@
+{
+  "name": "bitscope-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/next-canonical.cjs dev --webpack",
+    "build": "node scripts/next-canonical.cjs build --webpack",
+    "start": "node scripts/next-canonical.cjs start",
+    "lint": "node scripts/next-canonical.cjs lint"
+  },
+  "dependencies": {
+    "next": "16.2.10",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.5",
+    "@types/react": "19.0.4",
+    "@types/react-dom": "19.0.2",
+    "autoprefixer": "10.4.20",
+    "postcss": "8.5.10",
+    "tailwindcss": "3.4.17",
+    "typescript": "5.7.2"
+  }
+}

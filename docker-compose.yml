@@ -1,0 +1,72 @@
+services:
+  bitcoind:
+    image: ${BITCOIN_CORE_IMAGE:-bitcoin/bitcoin:28.1}
+    command:
+      - -regtest
+      - -server=1
+      - -printtoconsole
+      - -datadir=/data
+      - -rpcbind=0.0.0.0
+      - -rpcallowip=0.0.0.0/0
+      - -rpcuser=${BITCOIN_RPC_USER:-your_rpc_user}
+      - -rpcpassword=${BITCOIN_RPC_PASSWORD:-your_rpc_password}
+      - -fallbackfee=0.0001
+      - -txindex=1
+      - -zmqpubrawblock=tcp://0.0.0.0:28332
+      - -zmqpubrawtx=tcp://0.0.0.0:28333
+    ports:
+      - "18443:18443"
+      - "18444:18444"
+    volumes:
+      - bitcoind-regtest:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bitcoin-cli",
+          "-regtest",
+          "-datadir=/data",
+          "-rpcuser=${BITCOIN_RPC_USER:-your_rpc_user}",
+          "-rpcpassword=${BITCOIN_RPC_PASSWORD:-your_rpc_password}",
+          "getblockchaininfo"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      APP_VERSION: "0.1.0"
+      BITCOIN_NETWORK: regtest
+      BITCOIN_RPC_HOST: bitcoind
+      BITCOIN_RPC_PORT: "18443"
+      BITCOIN_RPC_USER: ${BITCOIN_RPC_USER:-your_rpc_user}
+      BITCOIN_RPC_PASSWORD: ${BITCOIN_RPC_PASSWORD:-your_rpc_password}
+      BITCOIN_RPC_WALLET: ${BITCOIN_RPC_WALLET:-}
+      BITCOIN_ZMQ_RAWBLOCK: ${BITCOIN_ZMQ_RAWBLOCK:-tcp://bitcoind:28332}
+      BITCOIN_ZMQ_RAWTX: ${BITCOIN_ZMQ_RAWTX:-tcp://bitcoind:28333}
+      BACKEND_CORS_ORIGINS: http://localhost:3000,http://frontend:3000
+    ports:
+      - "8000:8000"
+    depends_on:
+      bitcoind:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api}
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api}
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  bitcoind-regtest:

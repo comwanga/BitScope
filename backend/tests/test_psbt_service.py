@@ -16,6 +16,10 @@ class FakeRpcClient:
 
     def call(self, method: str, params: list[object] | None = None, wallet_name: str | None = None) -> object:
         self.calls.append((method, params, wallet_name))
+        if method == "validateaddress":
+            return {"isvalid": True}
+        if method == "getbalances":
+            return {"mine": {"trusted": 5.0, "immature": 0.0}}
         if method == "walletcreatefundedpsbt":
             return {"psbt": "created-psbt", "fee": 0.00001, "changepos": 1}
         if method == "decodepsbt":
@@ -45,6 +49,8 @@ def test_create_funded_psbt_and_decodes_result() -> None:
     assert result["change_position"] == 1
     assert result["decoded"]["input_count"] == 1  # type: ignore[index]
     assert rpc.calls == [
+        ("validateaddress", ["bcrt1qdest"], None),
+        ("getbalances", [], "demo"),
         ("walletcreatefundedpsbt", [[], [{"bcrt1qdest": 1.25}], 0, {"includeWatching": True}, True], "demo"),
         ("decodepsbt", ["created-psbt"], None),
     ]
@@ -93,3 +99,22 @@ def test_empty_psbt_is_rejected() -> None:
         PsbtService(FakeRpcClient()).decode(" ")  # type: ignore[arg-type]
 
     assert exc_info.value.code == "INVALID_PSBT_REQUEST"
+
+
+def test_create_psbt_reports_insufficient_mature_balance_before_funding() -> None:
+    class ImmatureRpc(FakeRpcClient):
+        def call(self, method: str, params: list[object] | None = None, wallet_name: str | None = None) -> object:
+            self.calls.append((method, params, wallet_name))
+            if method == "validateaddress":
+                return {"isvalid": True}
+            if method == "getbalances":
+                return {"mine": {"trusted": 0.5, "immature": 50.0}}
+            return super().call(method, params, wallet_name)
+
+    rpc = ImmatureRpc()
+
+    with pytest.raises(BitScopeError) as exc_info:
+        PsbtService(rpc).create("demo", "bcrt1qdest", 1.25)  # type: ignore[arg-type]
+
+    assert exc_info.value.code == "PSBT_INSUFFICIENT_MATURE_FUNDS"
+    assert ("walletcreatefundedpsbt", [[], [{"bcrt1qdest": 1.25}], 0, {"includeWatching": True}, True], "demo") not in rpc.calls

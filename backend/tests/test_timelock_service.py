@@ -16,8 +16,10 @@ class FakeRpcClient:
 
     def call(self, method: str, params: list[object] | None = None, wallet_name: str | None = None) -> object:
         self.calls.append((method, params, wallet_name))
+        if method == "validateaddress":
+            return {"isvalid": True}
         if method == "listunspent":
-            return [{"txid": "11" * 32, "vout": 1, "amount": 2.0}]
+            return [{"txid": "11" * 32, "vout": 1, "amount": 2.0, "spendable": True, "safe": True, "confirmations": 101, "generated": True}]
         if method == "createrawtransaction":
             return "00aa"
         if method == "fundrawtransaction":
@@ -41,6 +43,7 @@ def test_create_locktime_transaction_sets_sequence_in_raw_input() -> None:
     assert result["txid"] == "22" * 32
     assert result["sequence"] == 1
     assert result["locktime"] == 500
+    assert ("validateaddress", ["bcrt1qdest"], None) in rpc.calls
     assert ("createrawtransaction", [[{"txid": "11" * 32, "vout": 1, "sequence": 1}], {"bcrt1qdest": 0.5}, 500], None) in rpc.calls
     assert ("fundrawtransaction", ["00aa", {"add_inputs": False, "lockUnspents": True}], "demo") in rpc.calls
     assert result["mempool_accept"] == [{"txid": "22" * 32, "allowed": False, "reject-reason": "non-final"}]
@@ -70,3 +73,49 @@ def test_timelock_blocks_non_regtest_transaction_flow() -> None:
         TimelockService(FakeRpcClient(network="mainnet")).create_locktime_transaction("demo", "bc1qdest", 0.5, 500, 1)  # type: ignore[arg-type]
 
     assert exc_info.value.code == "REGTEST_ONLY"
+
+
+def test_create_locktime_transaction_rejects_invalid_destination_address() -> None:
+    class InvalidAddressRpc(FakeRpcClient):
+        def call(self, method: str, params: list[object] | None = None, wallet_name: str | None = None) -> object:
+            self.calls.append((method, params, wallet_name))
+            if method == "validateaddress":
+                return {"isvalid": False}
+            return super().call(method, params, wallet_name)
+
+    rpc = InvalidAddressRpc()
+
+    with pytest.raises(BitScopeError) as exc_info:
+        TimelockService(rpc).create_locktime_transaction("demo", "old-address", 0.5, 500, 1)  # type: ignore[arg-type]
+
+    assert exc_info.value.code == "INVALID_TIMELOCK_ADDRESS"
+    assert rpc.calls == [("validateaddress", ["old-address"], None)]
+
+
+def test_create_locktime_transaction_skips_immature_coinbase_utxos() -> None:
+    class ImmatureUtxoRpc(FakeRpcClient):
+        def call(self, method: str, params: list[object] | None = None, wallet_name: str | None = None) -> object:
+            self.calls.append((method, params, wallet_name))
+            if method == "validateaddress":
+                return {"isvalid": True}
+            if method == "listunspent":
+                return [
+                    {
+                        "txid": "11" * 32,
+                        "vout": 1,
+                        "amount": 2.0,
+                        "spendable": True,
+                        "safe": True,
+                        "confirmations": 10,
+                        "generated": True,
+                    }
+                ]
+            return super().call(method, params, wallet_name)
+
+    rpc = ImmatureUtxoRpc()
+
+    with pytest.raises(BitScopeError) as exc_info:
+        TimelockService(rpc).create_locktime_transaction("demo", "bcrt1qdest", 0.5, 500, 1)  # type: ignore[arg-type]
+
+    assert exc_info.value.code == "TIMELOCK_UTXO_NOT_FOUND"
+    assert ("createrawtransaction", [[{"txid": "11" * 32, "vout": 1, "sequence": 1}], {"bcrt1qdest": 0.5}, 500], None) not in rpc.calls

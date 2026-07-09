@@ -119,6 +119,50 @@ def test_rpc_client_maps_rpc_error_body_even_when_http_status_is_500() -> None:
     assert exc_info.value.details["rpc_code"] == -5
 
 
+def test_rpc_client_maps_insufficient_funds_to_actionable_regtest_error() -> None:
+    client = make_client(
+        httpx.MockTransport(
+            lambda _: httpx.Response(
+                500,
+                json={
+                    "result": None,
+                    "error": {"code": -4, "message": "Insufficient funds"},
+                    "id": 1,
+                },
+            )
+        )
+    )
+
+    with pytest.raises(RpcError) as exc_info:
+        client.call("sendtoaddress", ["bcrt1qdest", 100.0], wallet_name="demo")
+
+    assert exc_info.value.code == "RPC_INSUFFICIENT_FUNDS"
+    assert exc_info.value.status_code == 400
+    assert "101 confirmations" in exc_info.value.message
+
+
+def test_rpc_client_maps_invalid_address_to_stale_regtest_hint() -> None:
+    client = make_client(
+        httpx.MockTransport(
+            lambda _: httpx.Response(
+                500,
+                json={
+                    "result": None,
+                    "error": {"code": -5, "message": "Invalid Bitcoin address"},
+                    "id": 1,
+                },
+            )
+        )
+    )
+
+    with pytest.raises(RpcError) as exc_info:
+        client.call("validateaddress", ["old-address"])
+
+    assert exc_info.value.code == "RPC_INVALID_ADDRESS_OR_KEY"
+    assert exc_info.value.status_code == 400
+    assert "fresh address" in exc_info.value.message
+
+
 def test_required_read_only_rpc_helpers_call_expected_methods() -> None:
     seen_methods: list[str] = []
 

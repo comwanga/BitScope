@@ -12,6 +12,10 @@ class FakeRpcClient:
 
     def call(self, method: str, params: list[object], wallet_name: str | None = None) -> object:
         self.calls.append((method, params))
+        if method == "validateaddress":
+            return {"isvalid": True}
+        if method == "getbalances":
+            return {"mine": {"trusted": 2.0, "immature": 0.0}}
         if method == "createrawtransaction":
             return "00aa"
         if method == "fundrawtransaction":
@@ -182,6 +186,7 @@ def test_create_op_return_transaction_builds_funds_signs_and_tests() -> None:
     assert result["complete"] is True
     assert result["txid"] == "11" * 32
     assert result["broadcast"] is False
+    assert ("getbalances", []) in rpc.calls
     assert ("createrawtransaction", [[], [{"data": "6c616273"}]]) in rpc.calls
     assert ("fundrawtransaction", ["00aa"]) in rpc.calls
     assert ("signrawtransactionwithwallet", ["00bb"]) in rpc.calls
@@ -198,6 +203,8 @@ def test_create_op_return_transaction_can_add_payment_output_and_broadcast() -> 
     assert result["amount_btc"] == 0.25
     assert result["txid"] == "22" * 32
     assert result["confirmation_block_hashes"] == ["block-0"]
+    assert ("validateaddress", ["bcrt1qdest"]) in rpc.calls
+    assert ("getbalances", []) in rpc.calls
     assert ("createrawtransaction", [[], [{"bcrt1qdest": 0.25}, {"data": "cafe"}]]) in rpc.calls
     assert ("sendrawtransaction", ["00cc"]) in rpc.calls
     assert ("generatetoaddress", [1, "bcrt1qmine"]) in rpc.calls
@@ -215,3 +222,20 @@ def test_create_op_return_transaction_blocks_non_regtest() -> None:
         ScriptService(FakeRpcClient(network="mainnet")).create_op_return("demo", "labs", "text")  # type: ignore[arg-type]
 
     assert exc_info.value.code == "REGTEST_ONLY"
+
+
+def test_create_op_return_transaction_reports_insufficient_mature_balance_before_funding() -> None:
+    class ImmatureRpc(FakeRpcClient):
+        def call(self, method: str, params: list[object], wallet_name: str | None = None) -> object:
+            self.calls.append((method, params))
+            if method == "getbalances":
+                return {"mine": {"trusted": 0.0, "immature": 50.0}}
+            return super().call(method, params, wallet_name)
+
+    rpc = ImmatureRpc()
+
+    with pytest.raises(BitScopeError) as exc_info:
+        ScriptService(rpc).create_op_return("demo", "labs", "text")  # type: ignore[arg-type]
+
+    assert exc_info.value.code == "OP_RETURN_INSUFFICIENT_MATURE_FUNDS"
+    assert ("fundrawtransaction", ["00aa"]) not in rpc.calls

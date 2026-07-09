@@ -1,0 +1,13 @@
+.git
+.gitignore
+.bitcoin-regtest
+backend/.env
+backend/.env.docker
+backend/.venv
+backend/__pycache__
+backend/.pytest_cache
+frontend/.next
+frontend/node_modules
+frontend/next.out.log
+frontend/next.err.log
+*.log

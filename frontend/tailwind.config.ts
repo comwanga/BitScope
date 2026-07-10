@@ -9,12 +9,12 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        ink: "#17201b",
-        paper: "#f7f5ef",
-        panel: "#ffffff",
-        brass: "#b9802d",
-        forest: "#1f6b55",
-        rust: "#a34d32"
+        ink: "rgb(var(--color-ink) / <alpha-value>)",
+        paper: "rgb(var(--color-paper) / <alpha-value>)",
+        panel: "rgb(var(--color-panel) / <alpha-value>)",
+        brass: "rgb(var(--color-brass) / <alpha-value>)",
+        forest: "rgb(var(--color-forest) / <alpha-value>)",
+        rust: "rgb(var(--color-rust) / <alpha-value>)"
       }
     }
   },

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -40,15 +41,32 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className="dark" suppressHydrationWarning>
       <body>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                var theme = window.localStorage.getItem("bitscope-theme") || "dark";
+                document.documentElement.classList.toggle("dark", theme !== "light");
+                document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
+              } catch (_) {
+                document.documentElement.classList.add("dark");
+                document.documentElement.dataset.theme = "dark";
+              }
+            `
+          }}
+        />
         <div className="min-h-screen min-w-0 lg:flex">
-          <aside className="z-20 border-b border-stone-300 bg-ink text-white lg:fixed lg:inset-y-0 lg:left-0 lg:flex lg:w-64 lg:flex-col lg:border-b-0 lg:border-r lg:border-stone-800">
-            <div className="shrink-0 px-4 py-4 sm:px-5 sm:py-5">
+          <aside className="app-sidebar z-20 border-b border-stone-300 bg-ink text-white lg:fixed lg:inset-y-0 lg:left-0 lg:flex lg:w-64 lg:flex-col lg:border-b-0 lg:border-r lg:border-stone-800">
+            <div className="flex shrink-0 items-start justify-between gap-3 px-4 py-4 sm:px-5 sm:py-5 lg:block">
               <Link href="/" className="block">
                 <div className="text-xl font-semibold tracking-normal">BitScope</div>
                 <div className="mt-1 text-sm text-stone-300">Bitcoin Core lab</div>
               </Link>
+              <div className="shrink-0 lg:mt-4">
+                <ThemeToggle />
+              </div>
             </div>
             <nav className="flex gap-1 overflow-x-auto px-3 pb-4 [scrollbar-width:thin] lg:min-h-0 lg:flex-1 lg:flex-col lg:gap-1 lg:overflow-y-auto lg:overflow-x-hidden lg:pb-5">
               {navItems.map((item) => (

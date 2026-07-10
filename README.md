@@ -32,6 +32,22 @@ Implemented learning surfaces include:
 
 For the full route and service map, see [docs/architecture.md](docs/architecture.md). For the curriculum audit and remaining polish areas, see [docs/curriculum-gap-analysis.md](docs/curriculum-gap-analysis.md). For the current hardening and product roadmap, see [docs/project-audit-roadmap.md](docs/project-audit-roadmap.md).
 
+## Screenshots
+
+The screenshots below are captured from a local regtest node and show BitScope's default dark interface.
+
+| Node dashboard | Demo Mode |
+| --- | --- |
+| ![BitScope node dashboard](docs/screenshots/dashboard.png) | ![BitScope Demo Mode](docs/screenshots/demo-mode.png) |
+
+| Wallet lab | Transaction explorer |
+| --- | --- |
+| ![BitScope wallet lab](docs/screenshots/wallet-lab.png) | ![BitScope transaction explorer](docs/screenshots/transaction-explorer.png) |
+
+| Script Lab | Learning library |
+| --- | --- |
+| ![BitScope Script Lab](docs/screenshots/script-lab.png) | ![BitScope learning library](docs/screenshots/learning-library.png) |
+
 ## Architecture
 
 - **Backend:** Python, FastAPI, Pydantic, Bitcoin Core JSON-RPC, pytest.

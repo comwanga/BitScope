@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.errors import BitScopeError, bitscope_error_handler, http_exception_handler
-from app.routes import addresses, blocks, descriptors, fees, health, indexer, integrations, keys, learning, live, mempool, multisig, node, peers, psbt, regtest, rpc_explorer, scripts, taproot, timelocks, transactions, wallets
+from app.routes import addresses, blocks, demo, descriptors, fees, health, indexer, integrations, keys, learning, live, mempool, multisig, node, peers, psbt, regtest, rpc_explorer, scripts, taproot, timelocks, transactions, wallets
 
 
 def create_app() -> FastAPI:
@@ -36,6 +36,7 @@ def create_app() -> FastAPI:
     app.include_router(indexer.router, prefix=settings.api_prefix)
     app.include_router(wallets.router, prefix=settings.api_prefix)
     app.include_router(regtest.router, prefix=settings.api_prefix)
+    app.include_router(demo.router, prefix=settings.api_prefix)
     app.include_router(scripts.router, prefix=settings.api_prefix)
     app.include_router(taproot.router, prefix=settings.api_prefix)
     app.include_router(multisig.router, prefix=settings.api_prefix)

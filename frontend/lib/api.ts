@@ -121,6 +121,33 @@ export type KeyEducationResponse = {
   explanation: string;
 };
 
+export type DemoStep = {
+  id: string;
+  title: string;
+  status: string;
+  summary: string;
+  cli_commands: string[];
+  rpc_methods: string[];
+  concepts: string[];
+  raw: Record<string, unknown>;
+};
+
+export type DemoRunResponse = {
+  session_id: string;
+  wallet_name: string;
+  mining_address: string;
+  recipient_address: string;
+  txid: string | null;
+  block_hashes: string[];
+  confirmation_block_hashes: string[];
+  cli_commands: string[];
+  rpc_methods: string[];
+  concepts: string[];
+  steps: DemoStep[];
+  export_markdown: string;
+  explanation: string;
+};
+
 export type PeerNetwork = {
   name: string | null;
   limited: boolean | null;
@@ -999,6 +1026,26 @@ export async function fetchKeyEducation(): Promise<KeyEducationResponse> {
   }
 
   return response.json() as Promise<KeyEducationResponse>;
+}
+
+export async function runDemoMode(
+  walletName: string,
+  freshWallet: boolean,
+  mineBlocks: number,
+  sendAmountBtc: number,
+  includeScriptSample: boolean
+): Promise<DemoRunResponse> {
+  return postJson<DemoRunResponse>(
+    "/demo/run",
+    {
+      wallet_name: walletName,
+      fresh_wallet: freshWallet,
+      mine_blocks: mineBlocks,
+      send_amount_btc: sendAmountBtc,
+      include_script_sample: includeScriptSample
+    },
+    "Demo Mode could not be completed."
+  );
 }
 
 export async function fetchBlock(query: string): Promise<BlockResponse> {

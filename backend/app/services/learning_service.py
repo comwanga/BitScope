@@ -143,6 +143,174 @@ LEARNING_CONCEPTS: list[dict[str, object]] = [
         "cautions": ["Signing a PSBT can authorize spending. Treat mainnet PSBTs as real money operations."],
     },
     {
+        "id": "multisig",
+        "title": "Multisig",
+        "category": "Transactions",
+        "summary": "A spending policy where more than one key can be required before coins move.",
+        "details": (
+            "Bitcoin Core can assemble multisig scripts, fund them, and use PSBTs to stage signing. "
+            "BitScope keeps this on regtest so learners can inspect redeem scripts, descriptors, funding transactions, and final PSBT state."
+        ),
+        "related_rpc_methods": ["getnewaddress", "addmultisigaddress", "walletcreatefundedpsbt", "walletprocesspsbt"],
+        "related_pages": ["/multisig", "/psbt", "/wallet"],
+        "cli_examples": ["bitcoin-cli -rpcwallet=<wallet> addmultisigaddress 2 '[\"<pubkey1>\",\"<pubkey2>\"]'"],
+        "cautions": ["Real multisig backups must preserve policy, key origin data, and signer coordination details."],
+    },
+    {
+        "id": "timelocks",
+        "title": "Timelocks",
+        "category": "Transactions",
+        "summary": "nLockTime, CLTV, CSV, and sequence constrain when a transaction or script branch can be spent.",
+        "details": (
+            "Absolute transaction locktime depends on at least one non-final input sequence. CLTV and CSV move time conditions "
+            "into Script, where consensus evaluates height or time constraints during spend validation."
+        ),
+        "related_rpc_methods": ["createrawtransaction", "fundrawtransaction", "signrawtransactionwithwallet", "testmempoolaccept"],
+        "related_pages": ["/timelocks", "/script-lab", "/transactions"],
+        "cli_examples": ["bitcoin-cli -rpcwallet=<wallet> createrawtransaction '[...]' '{...}' 500"],
+        "cautions": ["Timelock semantics differ between transaction finality, absolute script locks, and relative sequence locks."],
+    },
+    {
+        "id": "transaction-control",
+        "title": "RBF and CPFP",
+        "category": "Policy",
+        "summary": "Wallet-level tools for replacing or fee-bumping unconfirmed transactions.",
+        "details": (
+            "Replace-by-fee signals policy intent through sequence values. Child-pays-for-parent spends an unconfirmed output "
+            "with a higher-fee child so miners evaluate the package economics together."
+        ),
+        "related_rpc_methods": ["getmempoolentry", "bumpfee", "fundrawtransaction", "sendrawtransaction"],
+        "related_pages": ["/tx-control", "/mempool", "/fees"],
+        "cli_examples": ["bitcoin-cli getmempoolentry <txid>", "bitcoin-cli -rpcwallet=<wallet> bumpfee <txid>"],
+        "cautions": ["RBF and CPFP are mempool policy workflows, not consensus guarantees."],
+    },
+    {
+        "id": "descriptors",
+        "title": "Output Descriptors",
+        "category": "Wallet",
+        "summary": "Descriptors encode how wallets derive addresses and recognize spendable scripts.",
+        "details": (
+            "A descriptor is a precise, checksummed expression for script templates and key origin data. "
+            "Descriptor wallets use them to track receive/change paths and avoid ambiguous address metadata."
+        ),
+        "related_rpc_methods": ["getdescriptorinfo", "deriveaddresses", "listdescriptors"],
+        "related_pages": ["/descriptors", "/keys", "/wallet"],
+        "cli_examples": ["bitcoin-cli getdescriptorinfo 'wpkh(<xpub>/0/*)'", "bitcoin-cli deriveaddresses '<descriptor>' '[0,2]'"],
+        "cautions": ["Public descriptors can reveal wallet structure and address clusters even without private keys."],
+    },
+    {
+        "id": "taproot",
+        "title": "Taproot",
+        "category": "Script",
+        "summary": "SegWit v1 outputs commit to an x-only output key and optionally hidden script paths.",
+        "details": (
+            "Taproot makes the common key-path spend compact while still allowing script-path conditions. "
+            "BitScope focuses on identifying P2TR outputs, witness version 1, x-only keys, and the difference between key and script paths."
+        ),
+        "related_rpc_methods": ["decodescript", "validateaddress"],
+        "related_pages": ["/taproot", "/script", "/keys"],
+        "cli_examples": ["bitcoin-cli validateaddress <bc1p-or-bcrt1p-address>"],
+        "cautions": ["A Taproot address alone does not reveal whether script paths exist."],
+    },
+    {
+        "id": "script-lab",
+        "title": "Script Lab",
+        "category": "Script",
+        "summary": "Build and test conditionals, hashlocks, P2SH/P2WSH wrappers, and spend policy preflights.",
+        "details": (
+            "The script lab moves beyond decoding by generating script templates and testing full transaction hex with "
+            "testmempoolaccept, making standardness and consensus boundaries visible."
+        ),
+        "related_rpc_methods": ["decodescript", "testmempoolaccept"],
+        "related_pages": ["/script-lab", "/script", "/timelocks"],
+        "cli_examples": ["bitcoin-cli decodescript <redeem_script_hex>", "bitcoin-cli testmempoolaccept '[\"<txhex>\"]'"],
+        "cautions": ["Passing mempool policy checks is not a substitute for production script review."],
+    },
+    {
+        "id": "op-return",
+        "title": "OP_RETURN Data Outputs",
+        "category": "Transactions",
+        "summary": "A standard way to commit small data payloads in an unspendable transaction output.",
+        "details": (
+            "OP_RETURN outputs are provably unspendable and are usually used for small commitments rather than data storage. "
+            "BitScope builds nulldata transactions with wallet funding and optional regtest broadcast."
+        ),
+        "related_rpc_methods": ["createrawtransaction", "fundrawtransaction", "signrawtransactionwithwallet", "testmempoolaccept"],
+        "related_pages": ["/data-tx", "/script", "/transactions"],
+        "cli_examples": ["bitcoin-cli -rpcwallet=<wallet> createrawtransaction '[]' '{\"data\":\"<hex>\"}'"],
+        "cautions": ["Public chain data is permanent. Keep payloads small and avoid personal or secret data."],
+    },
+    {
+        "id": "peers-privacy",
+        "title": "Peer Privacy",
+        "category": "Node",
+        "summary": "Peer, Tor, I2P, service flag, and local-address visibility from your node's perspective.",
+        "details": (
+            "Bitcoin Core reports connected peers and reachable networks, but privacy posture depends on node configuration. "
+            "BitScope shows what your node advertises and warns when Tor or I2P visibility is absent."
+        ),
+        "related_rpc_methods": ["getpeerinfo", "getnetworkinfo"],
+        "related_pages": ["/peers", "/live", "/"],
+        "cli_examples": ["bitcoin-cli getpeerinfo", "bitcoin-cli getnetworkinfo"],
+        "cautions": ["Displaying local addresses can reveal network configuration; treat screenshots with care."],
+    },
+    {
+        "id": "live-integrations",
+        "title": "Live Updates and Integrations",
+        "category": "RPC",
+        "summary": "Polling-backed SSE, optional ZMQ settings, and language examples for JSON-RPC clients.",
+        "details": (
+            "BitScope's live page streams node snapshots through server-sent events. ZMQ endpoints are shown as optional "
+            "Bitcoin Core configuration for future event-driven listeners, while integration examples show direct RPC client shapes."
+        ),
+        "related_rpc_methods": ["getblockchaininfo", "getzmqnotifications"],
+        "related_pages": ["/live", "/integrations", "/rpc"],
+        "cli_examples": ["bitcoin-cli getzmqnotifications", "curl --user <rpcuser>:<rpcpassword> --data-binary '{...}'"],
+        "cautions": ["RPC credentials belong on trusted local systems and must never be shipped to browser code."],
+    },
+    {
+        "id": "keys-hardware-wallets",
+        "title": "Keys and Hardware Wallet Flow",
+        "category": "Wallet",
+        "summary": "Descriptors, xpubs, derivation paths, watch-only wallets, and PSBT handoff without private keys.",
+        "details": (
+            "The Keys page is educational by design: it accepts public material only and explains how Bitcoin Core can "
+            "coordinate watch-only descriptors with external signers or hardware wallets through PSBTs."
+        ),
+        "related_rpc_methods": ["getdescriptorinfo", "importdescriptors", "walletcreatefundedpsbt", "decodepsbt"],
+        "related_pages": ["/keys", "/descriptors", "/psbt"],
+        "cli_examples": ["bitcoin-cli getdescriptorinfo 'wpkh([fingerprint/path]xpub/0/*)'"],
+        "cautions": ["Never paste seed words, WIF keys, xprv/tprv values, or hardware-wallet PINs into BitScope."],
+    },
+    {
+        "id": "local-indexing",
+        "title": "Local Indexing",
+        "category": "Indexing",
+        "summary": "A bounded local scan that demonstrates why arbitrary address history needs an index.",
+        "details": (
+            "BitScope can scan a small block range and decode transaction outputs, but full address history requires persistent "
+            "index state. This keeps the product honest about what Bitcoin Core exposes by default."
+        ),
+        "related_rpc_methods": ["getblockhash", "getblock", "validateaddress"],
+        "related_pages": ["/indexer", "/address", "/blocks"],
+        "cli_examples": ["bitcoin-cli getblock <blockhash> 2"],
+        "cautions": ["A local scan over many blocks can be slow without a dedicated database-backed index."],
+    },
+    {
+        "id": "demo-mode",
+        "title": "Demo Mode",
+        "category": "Workflow",
+        "summary": "One-click regtest onboarding that creates a wallet, mines mature coins, sends a transaction, and exports the command log.",
+        "details": (
+            "Demo Mode gives first-time users a fast path through BitScope's core learning loop while preserving the terminal trail. "
+            "It creates a fresh regtest wallet by default so stale addresses and previous test state do not confuse the session."
+        ),
+        "related_rpc_methods": ["createwallet", "generatetoaddress", "sendtoaddress", "gettransaction", "decodescript"],
+        "related_pages": ["/demo", "/regtest", "/learn"],
+        "cli_examples": ["bitcoin-cli createwallet bitscope-demo", "bitcoin-cli generatetoaddress 101 <address>"],
+        "cautions": ["Demo Mode is blocked outside regtest and should not be adapted to mainnet spending workflows."],
+    },
+    {
         "id": "bitcoin-cli-rpc",
         "title": "bitcoin-cli and JSON-RPC",
         "category": "RPC",

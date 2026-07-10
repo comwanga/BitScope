@@ -1,286 +1,197 @@
 # BitScope Architecture
 
-## Phase 0 Goal
+BitScope is a local-first Bitcoin Core learning laboratory. The public-facing material can be hosted as static docs, but the working application is designed to run beside the user's own Bitcoin Core node.
 
-Phase 0 locks scope and creates a structure that can support the full one-month project without pretending the whole product exists yet.
+## Architectural Principles
 
-The implementation strategy is regtest-first, RPC-driven, educational by default, and deliberately honest about Bitcoin Core's indexing limits.
-
-## Product Principles
-
-1. Use the user's own Bitcoin Core node as the source of truth.
-2. Show every major UI result beside the equivalent `bitcoin-cli` command.
-3. Include RPC method names, parameters, raw JSON, and plain-English explanations.
-4. Keep mainnet read-only by default.
-5. Avoid third-party blockchain APIs entirely.
-6. Build in stable phases, with each phase runnable and manually testable.
+1. Bitcoin Core RPC is the source of truth.
+2. The backend owns RPC credentials and never exposes them to browser code.
+3. Every major workflow maps UI output back to `bitcoin-cli`, RPC methods, parameters, raw JSON, and plain-English explanation.
+4. Regtest is the default environment for mining, wallet spending, signing, broadcasting, and demos.
+5. Mainnet workflows are read-only unless a feature is explicitly guarded.
+6. Hosted blockchain APIs and remote indexers are intentionally out of scope.
 
 ## Repository Structure
 
 ```text
-bitscope/
-  backend/
-    app/
-      main.py
-      config.py
-      rpc/
-      services/
-      routes/
-      models/
-    tests/
-    requirements.txt
-    .env.example
-  frontend/
-    app/
-    components/
-    lib/
-    package.json
-  docs/
-    architecture.md
-    demo-script.md
-    bitcoin-core-setup.md
-    regtest-guide.md
-    limitations.md
-  README.md
+backend/    FastAPI routes, service layer, Bitcoin Core RPC client, Pydantic models, tests
+frontend/   Next.js app router pages, reusable components, typed API client
+docs/       Architecture, setup, limitations, regtest, Docker, testing, and demo material
+docs-site/  Static Vercel documentation site for screenshots and project overview
+scripts/    Local setup and Docker Compose helpers
 ```
 
-Phase 0 creates the directories and planning documents. Phase 1 will add runnable backend and frontend application files.
+## Runtime Topology
 
-## Backend Domains
+```text
+Browser
+  |
+  | HTTP, local network
+  v
+Next.js frontend
+  |
+  | NEXT_PUBLIC_API_BASE_URL
+  v
+FastAPI backend
+  |
+  | JSON-RPC with server-side credentials
+  v
+Bitcoin Core node
+```
 
-### Core RPC Layer
+In Docker, the backend reaches Bitcoin Core through the Compose service name `bitcoind`. In native local development, the backend usually reaches Bitcoin Core at `127.0.0.1:18443` for regtest.
 
-Owns JSON-RPC transport, authentication, wallet-specific RPC URLs, timeout handling, and mapping Bitcoin Core errors into BitScope's error shape.
+## Backend Architecture
 
-Planned files:
+The backend is organized around thin route handlers and Bitcoin-aware services.
 
-- `backend/app/rpc/client.py`
-- `backend/app/rpc/errors.py`
-- `backend/app/rpc/types.py`
+### RPC Layer
 
-### Services
+`backend/app/rpc/client.py` owns JSON-RPC transport, wallet-specific RPC paths, request timeouts, authentication, and response validation.
 
-Services keep Bitcoin-specific logic out of route handlers.
+`backend/app/rpc/errors.py` maps common Bitcoin Core failures into stable BitScope errors, including:
 
-- `NodeService`: chain, network, peer, sync, and mempool summary.
-- `BlockchainService`: block lookup by height/hash and block normalization.
-- `TransactionService`: raw transaction fetching, decoding, mempool lookup, UTXO flow formatting.
-- `MempoolService`: mempool summary, sample txids, entry details.
-- `WalletService`: wallet list, load/create, balances, addresses, UTXOs, transactions.
-- `ScriptService`: script decoding, opcode explanation, redeem-script templates, and transaction validation preflight.
-- `FeeService`: fee estimation and sats/vB conversion.
-- `PsbtService`: create, decode, process, and finalize PSBTs.
-- `RegtestService`: mining, faucet, and local demo transactions.
-- `LearningService`: concept metadata and RPC method reference.
+- Bitcoin Core warmup or offline state.
+- RPC authentication failure.
+- Wallet not loaded.
+- Insufficient mature funds.
+- Immature coinbase rewards.
+- Invalid or stale regtest addresses.
+- Missing blocks, transactions, or mempool entries.
+- Consensus or mempool policy rejection.
 
-### Routes
+### Service Layer
 
-All API routes are prefixed with `/api`.
+Services keep Bitcoin-specific behavior out of route handlers:
 
-| Route | Methods | Phase | Purpose |
-| --- | --- | --- | --- |
-| `/api/health` | GET | 1 | App health check |
-| `/api/node/status` | GET | 3 | Node dashboard |
-| `/api/peers` | GET | Stretch | Peer, transport, Tor/I2P, and privacy visibility |
-| `/api/live/node` | GET | Stretch | Server-Sent Events stream for live node status |
-| `/api/live/zmq` | GET | Stretch | ZMQ endpoint readiness and SSE fallback status |
-| `/api/integrations/rpc-examples` | GET | Stretch | Language examples for Bitcoin Core JSON-RPC |
-| `/api/keys/guide` | GET | Stretch | Educational public key, descriptor, xpub, and hardware-wallet PSBT guide |
-| `/api/blocks/{query}` | GET | 4 | Block lookup by height or hash |
-| `/api/transactions/{txid}` | GET | 5 | Transaction explorer |
-| `/api/transactions/{txid}/policy` | GET | Stretch | Mempool policy, RBF, and CPFP metadata |
-| `/api/transactions/rbf-bump` | POST | Stretch | Regtest-only wallet RBF fee bump |
-| `/api/transactions/cpfp-child` | POST | Stretch | Regtest-only CPFP child transaction builder |
-| `/api/mempool` | GET | 6 | Mempool dashboard |
-| `/api/mempool/{txid}` | GET | 6 | Mempool entry details |
-| `/api/fees` | GET | 7 | Fee estimates |
-| `/api/addresses/{address}` | GET | 8 | Address validation and wallet-owned UTXO view |
-| `/api/descriptors/analyze` | POST | Stretch | Descriptor normalization and address derivation |
-| `/api/descriptors/wallet/{wallet_name}` | GET | Stretch | Public wallet descriptor listing |
-| `/api/taproot/inspect` | POST | Stretch | Taproot address and scriptPubKey inspection |
-| `/api/multisig/create` | POST | Stretch | Regtest multisig address creation from wallet pubkeys |
-| `/api/multisig/fund` | POST | Stretch | Fund a multisig address |
-| `/api/multisig/spend-psbt` | POST | Stretch | Spend multisig UTXOs with PSBT flow |
-| `/api/timelocks/transaction` | POST | Stretch | Build and test a locktime transaction |
-| `/api/timelocks/script-template` | POST | Stretch | Generate CLTV or CSV script templates |
-| `/api/index/scan-address` | POST | Stretch | Bounded local address output scan |
-| `/api/wallets` | GET | 9 | Loaded and available wallets |
-| `/api/wallets/create` | POST | 9 | Create wallet |
-| `/api/wallets/load` | POST | 9 | Load wallet |
-| `/api/wallets/{wallet_name}/balance` | GET | 9 | Wallet balance |
-| `/api/wallets/{wallet_name}/address` | POST | 9 | Generate address |
-| `/api/wallets/{wallet_name}/utxos` | GET | 9 | Wallet UTXOs |
-| `/api/wallets/{wallet_name}/transactions` | GET | 9 | Recent wallet transactions |
-| `/api/regtest/mine` | POST | 10 | Mine regtest blocks |
-| `/api/regtest/faucet` | POST | 10 | Send regtest coins |
-| `/api/regtest/reset-warning` | POST | 10 | Explicit reset warning placeholder |
-| `/api/scripts/decode` | POST | 11 | Decode script hex |
-| `/api/scripts/template` | POST | Stretch | Generate P2PKH, hashlock, or conditional script templates |
-| `/api/scripts/test-spend` | POST | Stretch | Test a full spending transaction with `testmempoolaccept` |
-| `/api/scripts/create-op-return` | POST | Stretch | Build, fund, sign, and optionally broadcast an OP_RETURN data transaction |
-| `/api/psbt/create` | POST | 12 | Create funded PSBT |
-| `/api/psbt/decode` | POST | 12 | Decode PSBT |
-| `/api/psbt/wallet-process` | POST | 12 | Process/sign PSBT |
-| `/api/psbt/finalize` | POST | 12 | Finalize PSBT |
-| `/api/learn/rpc-methods` | GET | 13 | RPC learning reference |
-| `/api/learn/concepts` | GET | 14 | Concept library |
-| `/api/transactions/create-regtest` | POST | 15 | Build regtest transaction |
-| `/api/transactions/send-regtest` | POST | 15 | Sign and broadcast regtest transaction |
+- `NodeService`: chain, sync, peer count, mempool summary, and node warnings.
+- `PeerService`: `getpeerinfo`, network reachability, Tor/I2P visibility, service flags, and privacy warnings.
+- `BlockchainService`: block lookup, block normalization, headers, transaction IDs, and Merkle layers.
+- `TransactionService`: raw transactions, UTXO flow, policy metadata, RBF, CPFP, and regtest transaction creation.
+- `MempoolService`: mempool summary and entry details.
+- `FeeService`: `estimatesmartfee` handling and sats/vB conversion.
+- `AddressService`: address validation, wallet-owned UTXO discovery, and Bitcoin Core address-history limits.
+- `IndexerService`: bounded local block scans for address outputs.
+- `WalletService`: wallet discovery, create/load, balances, addresses, UTXOs, and wallet transactions.
+- `RegtestService`: block mining and faucet sends.
+- `DemoService`: one-click guided regtest onboarding with exportable command logs.
+- `ScriptService`: script decoding, script templates, transaction policy testing, and OP_RETURN transaction building.
+- `PsbtService`: PSBT creation, decode, wallet processing, signing, finalization, and extraction.
+- `MultisigService`: regtest multisig creation, funding, and PSBT-backed spending.
+- `TimelockService`: nLockTime, CLTV, CSV, sequence, and mempool preflight.
+- `DescriptorService`: descriptor checksums, normalization, address derivation, and wallet descriptors.
+- `TaprootService`: Taproot output and scriptPubKey inspection.
+- `IntegrationService`: JSON-RPC client examples, wallet RPC paths, SSE, and optional ZMQ configuration.
+- `KeyService`: public descriptor, xpub, derivation path, watch-only wallet, and hardware-wallet PSBT education.
+- `LearningService`: concept catalog and RPC method reference.
+
+## API Surface
+
+All routes are prefixed with `/api`.
+
+| Area | Routes |
+| --- | --- |
+| Health and node | `/health`, `/node/status`, `/peers`, `/live/node`, `/live/zmq` |
+| Blocks and chain | `/blocks/{query}` |
+| Transactions and policy | `/transactions/{txid}`, `/transactions/{txid}/policy`, `/transactions/create-regtest`, `/transactions/send-regtest`, `/transactions/rbf-bump`, `/transactions/cpfp-child` |
+| Mempool and fees | `/mempool`, `/mempool/{txid}`, `/fees` |
+| Addresses and indexing | `/addresses/{address}`, `/index/scan-address` |
+| Wallet and regtest | `/wallets`, `/wallets/create`, `/wallets/load`, `/wallets/{wallet_name}/balance`, `/wallets/{wallet_name}/address`, `/wallets/{wallet_name}/utxos`, `/wallets/{wallet_name}/transactions`, `/regtest/mine`, `/regtest/faucet`, `/demo/run` |
+| Scripts and data | `/scripts/decode`, `/scripts/template`, `/scripts/test-spend`, `/scripts/create-op-return` |
+| PSBT, multisig, timelocks | `/psbt/create`, `/psbt/decode`, `/psbt/wallet-process`, `/psbt/finalize`, `/multisig/create`, `/multisig/fund`, `/multisig/spend-psbt`, `/timelocks/transaction`, `/timelocks/script-template` |
+| Descriptors and Taproot | `/descriptors/analyze`, `/descriptors/wallet/{wallet_name}`, `/taproot/inspect` |
+| Learning and integrations | `/rpc/methods`, `/rpc/execute`, `/learn/concepts`, `/learn/rpc-methods`, `/integrations/rpc-examples`, `/keys/guide` |
+
+## Frontend Architecture
+
+The frontend uses the Next.js app router. Pages are organized by learning workflow rather than internal backend ownership.
+
+| Page | Purpose |
+| --- | --- |
+| `/` | Node status dashboard |
+| `/demo` | Guided regtest onboarding and exportable command log |
+| `/live` | Polling-backed live node monitor |
+| `/integrations` | JSON-RPC client examples, wallet RPC paths, SSE, and ZMQ setup |
+| `/peers` | Peer, Tor/I2P, service flag, and privacy visibility |
+| `/blocks` | Block search and block detail |
+| `/transactions` | Transaction search, UTXO flow, and regtest transaction builder |
+| `/tx-control` | RBF, CPFP, and mempool policy lab |
+| `/mempool` | Mempool summary and transaction entry details |
+| `/fees` | Fee estimator |
+| `/address` | Address validation and wallet-owned UTXO view |
+| `/wallet` | Wallet discovery, creation, addresses, balances, UTXOs, and transaction history |
+| `/regtest` | Mining and faucet sends |
+| `/script` | Script decoder |
+| `/script-lab` | Script templates and transaction policy testing |
+| `/data-tx` | OP_RETURN transaction builder |
+| `/psbt` | PSBT create, decode, process, and finalize lab |
+| `/multisig` | Multisig create, fund, and PSBT-backed spend lab |
+| `/timelocks` | Locktime, CLTV, CSV, and sequence lab |
+| `/descriptors` | Descriptor explorer |
+| `/taproot` | Taproot output explorer |
+| `/indexer` | Bounded local indexing experiment |
+| `/keys` | Descriptor, xpub, derivation path, watch-only, and hardware-wallet PSBT education |
+| `/rpc` | Safe RPC method explorer |
+| `/learn` | Concept library connected to pages and RPC methods |
+
+## Shared UI Contracts
+
+Major learning pages use `CommandExplanationCard` to keep the interface honest:
+
+- Equivalent `bitcoin-cli` command.
+- RPC method names.
+- Request parameters.
+- Plain-English explanation.
+- Related concepts.
+- Raw Bitcoin Core JSON when useful.
+
+Other shared components include `StatusCard`, `WarningBox`, and workflow-specific result cards.
 
 ## Error Shape
 
-All friendly API errors should use this structure:
+Friendly API errors use a stable shape:
 
 ```json
 {
   "error": true,
-  "code": "WALLET_NOT_LOADED",
-  "message": "The wallet is not loaded. Load a wallet first from the Wallet page.",
-  "details": {}
+  "code": "RPC_IMMATURE_COINBASE",
+  "message": "The wallet is trying to spend immature coinbase rewards. Mine additional regtest blocks until the rewards have 101 confirmations, then retry.",
+  "details": {
+    "rpc_method": "sendtoaddress"
+  }
 }
 ```
 
-Required mapped cases:
+RPC credentials, wallet secrets, and private key material must never appear in frontend bundles, UI-visible raw errors, or documentation examples.
 
-- Bitcoin Core not running.
-- Wrong RPC credentials.
-- Wallet not loaded.
-- Block not found.
-- Transaction not found.
-- Node still syncing.
-- Pruned node missing old block.
-- Fee estimate unavailable.
-- Mainnet unsafe operation blocked.
-- Invalid script.
-- Invalid address.
+## Local-First Deployment Model
 
-RPC passwords must never appear in API responses, logs intended for the UI, frontend bundles, or raw error details.
+BitScope's working backend and frontend are meant to run locally because the backend must reach the user's Bitcoin Core RPC endpoint.
 
-## Frontend Pages
+Public hosting is appropriate for:
 
-| Page | Phase | Purpose |
-| --- | --- | --- |
-| `/` | 3 | Node status dashboard |
-| `/live` | Stretch | Live node monitor |
-| `/integrations` | Stretch | RPC and ZMQ integration examples |
-| `/peers` | Stretch | Peer and privacy network dashboard |
-| `/blocks` | 4 | Block search and block detail |
-| `/transactions` | 5 | Transaction search and UTXO flow |
-| `/tx-control` | Stretch | RBF, CPFP, and mempool policy lab |
-| `/mempool` | 6 | Mempool laboratory |
-| `/fees` | 7 | Fee estimator |
-| `/address` | 8 | Address and UTXO explorer |
-| `/keys` | Stretch | Public key, descriptor, derivation, and hardware-wallet PSBT education |
-| `/multisig` | Stretch | Multisig create/fund/spend PSBT lab |
-| `/timelocks` | Stretch | Locktime, CLTV, CSV, and sequence lab |
-| `/descriptors` | Stretch | Descriptor explorer |
-| `/taproot` | Stretch | Taproot output explorer |
-| `/indexer` | Stretch | Local indexing experiment |
-| `/wallet` | 9 | Wallet learning laboratory |
-| `/regtest` | 10 | Regtest automation |
-| `/script` | 11 | Script decoder |
-| `/script-lab` | Stretch | Script template and validation lab |
-| `/data-tx` | Stretch | OP_RETURN data transaction builder |
-| `/psbt` | 12 | PSBT laboratory |
-| `/rpc` | 13 | RPC method explorer |
-| `/learn` | 14 | Bitcoin concept learning layer |
+- Static documentation.
+- Screenshots.
+- Architecture overview.
+- Setup instructions.
+- Demo narrative.
 
-## Reusable Frontend Components
+Public hosting is not appropriate for:
 
-- `CommandExplanationCard`
-- `JsonViewer`
-- `SearchBox`
-- `StatusCard`
-- `WarningBox`
-- `ErrorBox`
-- `LoadingState`
-- `UtxoFlow`
-- `BlockHeaderDiagram`
-- `TransactionIOViewer`
-- `MempoolSummary`
-- `WalletCard`
-- `ScriptOpcodeViewer`
-- `BipReferenceCard`
-- `ConceptGlossaryLink`
+- A shared backend connected to a hosted node.
+- A browser-facing RPC credential flow.
+- Mainnet signing, spending, or wallet operations.
 
-Every major page should use `CommandExplanationCard` to show the CLI command, RPC method, parameters, explanation, raw JSON, concepts, and relevant BIPs.
-
-## MVP Scope
-
-The MVP is the smallest version that convincingly demonstrates Bitcoin Core fluency:
-
-1. Backend/frontend scaffold.
-2. RPC client and error handling.
-3. Node dashboard.
-4. Block explorer.
-5. Transaction explorer.
-6. Wallet lab.
-7. Regtest automation.
-8. Script decoder.
-9. Mempool and fee pages.
-10. Concept learning layer.
-
-## Stretch Scope
-
-Only after the MVP is stable:
-
-- PSBT lab.
-- RPC explorer with safe read-only execution.
-- Transaction builder for regtest.
-- Transaction control lab for RBF and CPFP.
-- Multisig lab.
-- Timelock lab.
-- Peer and privacy network dashboard.
-- Script design lab.
-- OP_RETURN data transaction builder.
-- RPC integration examples and ZMQ readiness.
-- Educational keys and hardware-wallet PSBT handoff page.
-- Merkle tree visualization.
-- Taproot-specific deep dive.
-- Descriptor explorer.
-- ZMQ readiness and integration examples.
-- Server-Sent Events live node monitor.
-- Local address indexing experiment.
-
-## Docker Runtime
-
-The stretch Docker environment is defined in `docker-compose.yml`.
-
-It runs:
-
-- `bitcoind` in regtest mode with RPC and `txindex=1`.
-- FastAPI backend connected to the `bitcoind` service name.
-- Next.js frontend configured for `http://localhost:8000/api`.
-
-See [docker-regtest.md](docker-regtest.md).
-
-## Phase Plan
-
-Each phase must finish with:
-
-1. Code running or documents created as appropriate.
-2. Tests passing where tests exist.
-3. Manual verification instructions.
-4. Acceptance criteria checked.
-5. No movement to the next phase until the current one is working.
-
-## Mainnet Safety Model
-
-Mainnet is read-only by default.
-
-Blocked by default on mainnet:
-
-- Sending transactions.
-- Regtest mining tools.
-- Wallet spending.
-- PSBT signing unless explicitly implemented behind advanced warnings.
-
-Warning copy:
-
-```text
-You are connected to mainnet. BitScope disables spending actions by default to protect real funds.
-```
+For public visibility, the repository includes `docs-site/`, a static Vercel-ready documentation site. For real learning workflows, users should run BitScope locally or through the Docker regtest stack.
 
 ## Bitcoin Core Limits
 
-Bitcoin Core does not provide full arbitrary address history by default. BitScope can validate public addresses and inspect wallet-owned addresses through wallet RPC, but full public address history requires a local indexing layer. Hosted indexers are intentionally out of scope.
+Bitcoin Core validates the chain, tracks the UTXO set, and exposes local node state. It does not provide complete arbitrary address history by default.
+
+BitScope handles that boundary explicitly:
+
+- Wallet-owned addresses can be inspected through wallet RPC.
+- `txindex=1` helps with raw transaction lookup by txid.
+- Bounded block scans can demonstrate local indexing mechanics.
+- Full public address history requires a dedicated local indexer.
+- Hosted blockchain APIs remain out of scope.

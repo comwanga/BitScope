@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BitScope Docs</title>
+    <meta
+      name="description"
+      content="BitScope is a local-first Bitcoin Core learning laboratory with a guided regtest demo, command explanations, and Bitcoin Core RPC workflows."
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <nav class="nav" aria-label="Primary">
+        <a class="brand" href="/">BitScope</a>
+        <div class="nav-links">
+          <a href="#screenshots">Screenshots</a>
+          <a href="#architecture">Architecture</a>
+          <a href="#run">Run locally</a>
+          <a href="https://github.com/comwanga/BitScope">GitHub</a>
+        </div>
+      </nav>
+      <div class="hero-grid">
+        <section class="hero-copy">
+          <p class="eyebrow">Bitcoin Core lab</p>
+          <h1>Learn Bitcoin from your own node.</h1>
+          <p>
+            BitScope is a local-first explorer and laboratory for Bitcoin Core RPC, regtest workflows,
+            wallets, transactions, scripts, PSBTs, descriptors, fees, peers, and node limits.
+          </p>
+          <div class="actions">
+            <a class="button primary" href="https://github.com/comwanga/BitScope#quick-start">Run locally</a>
+            <a class="button" href="#screenshots">View screenshots</a>
+          </div>
+        </section>
+        <img class="hero-shot" src="/screenshots/demo-mode.png" alt="BitScope Demo Mode screen" />
+      </div>
+    </header>
+
+    <main>
+      <section id="screenshots" class="section">
+        <div class="section-heading">
+          <p class="eyebrow">Screenshots</p>
+          <h2>Interactive workflows, not a hosted explorer clone.</h2>
+          <p>
+            These screens show BitScope interacting with a local regtest node and pairing each UI result with
+            command-line and JSON-RPC context.
+          </p>
+        </div>
+        <div class="gallery">
+          <article>
+            <img src="/screenshots/dashboard.png" alt="BitScope node dashboard" />
+            <h3>Node dashboard</h3>
+          </article>
+          <article>
+            <img src="/screenshots/wallet-lab.png" alt="BitScope wallet lab" />
+            <h3>Wallet lab</h3>
+          </article>
+          <article>
+            <img src="/screenshots/transaction-explorer.png" alt="BitScope transaction explorer" />
+            <h3>Transaction explorer</h3>
+          </article>
+          <article>
+            <img src="/screenshots/script-lab.png" alt="BitScope Script Lab" />
+            <h3>Script Lab</h3>
+          </article>
+          <article>
+            <img src="/screenshots/learning-library.png" alt="BitScope learning library" />
+            <h3>Learning library</h3>
+          </article>
+        </div>
+      </section>
+
+      <section id="architecture" class="section split">
+        <div>
+          <p class="eyebrow">Architecture</p>
+          <h2>Hosted docs, local execution.</h2>
+          <p>
+            The public site is intentionally static. The real BitScope app runs locally because the backend
+            talks to the user's Bitcoin Core RPC endpoint and keeps credentials server-side.
+          </p>
+        </div>
+        <div class="cards">
+          <article>
+            <h3>Frontend</h3>
+            <p>Next.js pages for dashboards, labs, command explanations, and educational workflows.</p>
+          </article>
+          <article>
+            <h3>Backend</h3>
+            <p>FastAPI services translate Bitcoin Core RPC responses into friendly, secret-safe learning data.</p>
+          </article>
+          <article>
+            <h3>Bitcoin Core</h3>
+            <p>The user's own node remains the source of truth. No hosted blockchain APIs are used.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="run" class="section run">
+        <p class="eyebrow">Run locally</p>
+        <h2>Start with regtest.</h2>
+        <pre><code>git clone https://github.com/comwanga/BitScope
+cd BitScope
+.\scripts\compose.ps1 up --build</code></pre>
+        <p>
+          Open <code>http://localhost:3000</code>, then use Demo Mode to create a clean wallet, mine mature
+          regtest coins, send a transaction, decode script, and export the command trail.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>

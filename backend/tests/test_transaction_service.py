@@ -91,6 +91,10 @@ class FakeBuilderRpcClient:
 
     def call(self, method: str, params: list[object] | None = None, wallet_name: str | None = None) -> object:
         self.calls.append((method, params, wallet_name))
+        if method == "validateaddress":
+            return {"isvalid": True}
+        if method == "getbalances":
+            return {"mine": {"trusted": 10.0, "immature": 0.0}}
         if method == "createrawtransaction":
             return "00aa"
         if method == "fundrawtransaction":
@@ -184,6 +188,8 @@ def test_build_regtest_transaction_uses_raw_transaction_rpc_sequence() -> None:
     assert result["fee_btc"] == 0.00001
     assert result["change_position"] == 1
     assert rpc.calls == [
+        ("validateaddress", ["bcrt1qdest"], None),
+        ("getbalances", [], "demo"),
         ("createrawtransaction", [[], {"bcrt1qdest": 1.25}], None),
         ("fundrawtransaction", ["00aa"], "demo"),
         ("signrawtransactionwithwallet", ["00bb"], "demo"),
@@ -238,7 +244,27 @@ def test_create_cpfp_child_builds_tests_and_broadcasts_child() -> None:
 
     assert result["child_txid"] == "22" * 32
     assert result["broadcast"] is True
+    assert ("validateaddress", ["bcrt1qdest"], None) in rpc.calls
     assert ("createrawtransaction", [[{"txid": TXID, "vout": 0}], {"bcrt1qdest": 0.1}], None) in rpc.calls
     assert ("fundrawtransaction", ["00aa", {"lockUnspents": True, "fee_rate": 25.0}], "demo") in rpc.calls
     assert ("testmempoolaccept", [["00cc"]], None) in rpc.calls
     assert ("sendrawtransaction", ["00cc"], None) in rpc.calls
+
+
+def test_build_regtest_transaction_reports_immature_balance_before_funding() -> None:
+    class ImmatureRpc(FakeBuilderRpcClient):
+        def call(self, method: str, params: list[object] | None = None, wallet_name: str | None = None) -> object:
+            self.calls.append((method, params, wallet_name))
+            if method == "validateaddress":
+                return {"isvalid": True}
+            if method == "getbalances":
+                return {"mine": {"trusted": 0.5, "immature": 50.0}}
+            return super().call(method, params, wallet_name)
+
+    rpc = ImmatureRpc()
+
+    with pytest.raises(BitScopeError) as exc_info:
+        TransactionService(rpc).build_regtest_transaction("demo", "bcrt1qdest", 1.0)  # type: ignore[arg-type]
+
+    assert exc_info.value.code == "REGTEST_TRANSACTION_INSUFFICIENT_MATURE_FUNDS"
+    assert ("fundrawtransaction", ["00aa"], "demo") not in rpc.calls

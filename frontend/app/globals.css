@@ -4,6 +4,24 @@
 
 :root {
   color-scheme: light;
+  --color-ink: 23 32 27;
+  --color-paper: 247 245 239;
+  --color-panel: 255 255 255;
+  --color-brass: 185 128 45;
+  --color-forest: 31 107 85;
+  --color-rust: 163 77 50;
+  --shadow-strength: 0.1;
+}
+
+html.dark {
+  color-scheme: dark;
+  --color-ink: 232 238 234;
+  --color-paper: 14 18 17;
+  --color-panel: 25 31 29;
+  --color-brass: 231 176 91;
+  --color-forest: 67 167 135;
+  --color-rust: 222 122 91;
+  --shadow-strength: 0.35;
 }
 
 * {
@@ -17,8 +35,8 @@ body {
 
 body {
   margin: 0;
-  background: #f7f5ef;
-  color: #17201b;
+  background: rgb(var(--color-paper));
+  color: rgb(var(--color-ink));
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -40,4 +58,137 @@ svg,
 canvas,
 video {
   max-width: 100%;
+}
+
+html.dark .bg-white,
+html.dark .bg-stone-50,
+html.dark .bg-stone-100 {
+  background-color: rgb(34 41 38 / var(--tw-bg-opacity, 1));
+}
+
+html.dark .bg-ink {
+  background-color: rgb(8 12 11 / var(--tw-bg-opacity, 1));
+}
+
+html.dark .bg-stone-200 {
+  background-color: rgb(52 61 56 / var(--tw-bg-opacity, 1));
+}
+
+html.dark .bg-red-50,
+html.dark .bg-red-100 {
+  background-color: rgb(56 28 27 / var(--tw-bg-opacity, 1));
+}
+
+html.dark .text-red-700 {
+  color: rgb(248 143 128 / var(--tw-text-opacity, 1));
+}
+
+html.dark .border-stone-200,
+html.dark .border-stone-300 {
+  border-color: rgb(72 82 76 / var(--tw-border-opacity, 1));
+}
+
+html.dark .text-stone-500 {
+  color: rgb(176 188 181 / var(--tw-text-opacity, 1));
+}
+
+html.dark .text-stone-600,
+html.dark .text-stone-700,
+html.dark .text-stone-800 {
+  color: rgb(207 216 211 / var(--tw-text-opacity, 1));
+}
+
+html.dark .text-ink {
+  color: rgb(var(--color-ink) / var(--tw-text-opacity, 1));
+}
+
+html.dark input,
+html.dark textarea,
+html.dark select {
+  background-color: rgb(18 23 21);
+  border-color: rgb(72 82 76);
+  color: rgb(var(--color-ink));
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: rgb(142 154 147);
+}
+
+html.dark pre {
+  background-color: rgb(8 12 11);
+  color: rgb(236 243 239);
+}
+
+html.dark pre code {
+  background-color: transparent;
+  color: inherit;
+}
+
+html.dark code {
+  color: rgb(236 243 239);
+}
+
+html.dark code.bg-stone-100,
+html.dark code.bg-stone-50,
+html.dark code.bg-white {
+  background-color: rgb(28 35 32);
+}
+
+html.dark .shadow-sm {
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / var(--shadow-strength));
+}
+
+html.dark .hover\:bg-stone-50:hover,
+html.dark .hover\:bg-stone-100:hover,
+html.dark .hover\:bg-stone-200:hover {
+  background-color: rgb(48 58 53 / var(--tw-bg-opacity, 1));
+}
+
+html.dark .hover\:bg-ink:hover {
+  background-color: rgb(47 87 73 / var(--tw-bg-opacity, 1));
+}
+
+html.dark .hover\:text-ink:hover {
+  color: rgb(var(--color-ink) / var(--tw-text-opacity, 1));
+}
+
+html.dark .hover\:border-forest:hover {
+  border-color: rgb(var(--color-forest) / var(--tw-border-opacity, 1));
+}
+
+html.dark .app-sidebar {
+  background-color: rgb(14 18 17);
+  border-color: rgb(45 54 49);
+  color: rgb(248 250 249);
+}
+
+html.dark .app-sidebar .bg-white,
+html.dark .app-sidebar .bg-white\/10 {
+  background-color: rgb(255 255 255 / 0.08);
+}
+
+html.dark .app-sidebar a,
+html.dark .app-sidebar button {
+  color: rgb(238 244 240);
+}
+
+html.dark .app-sidebar a:hover,
+html.dark .app-sidebar button:hover {
+  background-color: rgb(255 255 255 / 0.14);
+  color: rgb(255 255 255);
+}
+
+html.dark .app-sidebar .text-stone-300 {
+  color: rgb(198 208 202);
+}
+
+.app-sidebar .theme-toggle {
+  background-color: rgb(255 255 255 / 0.1);
+  border-color: rgb(255 255 255 / 0.18);
+  color: rgb(248 250 249);
+}
+
+.app-sidebar .theme-toggle:hover {
+  background-color: rgb(255 255 255 / 0.18);
 }

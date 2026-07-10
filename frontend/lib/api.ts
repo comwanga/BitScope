@@ -699,6 +699,8 @@ export type RegtestFaucetResponse = {
   wallet_name: string;
   address: string;
   amount_btc: number;
+  trusted_balance_btc: number;
+  immature_balance_btc: number;
   confirmation_block_hashes: string[];
   cli_commands: string[];
   rpc_methods: string[];
@@ -1546,8 +1548,32 @@ async function postJson<T>(path: string, body: Record<string, unknown>, fallback
 async function extractApiError(response: Response, fallback: string): Promise<string> {
   try {
     const payload = (await response.json()) as Partial<ApiError>;
-    return payload.message ?? fallback;
+    const message = payload.message ?? fallback;
+    const details = formatApiDetails(payload.details);
+    return details ? `${message} ${details}` : message;
   } catch {
     return fallback;
   }
+}
+
+function formatApiDetails(details: Record<string, unknown> | undefined): string {
+  if (!details) {
+    return "";
+  }
+  const allowedKeys = [
+    "wallet_name",
+    "trusted_btc",
+    "immature_btc",
+    "requested_btc",
+    "fee_headroom_btc",
+    "required_btc",
+    "minimum_coinbase_confirmations",
+    "address",
+    "rpc_method",
+    "rpc_code"
+  ];
+  const parts = allowedKeys
+    .filter((key) => details[key] !== undefined && details[key] !== null)
+    .map((key) => `${key}: ${String(details[key])}`);
+  return parts.length ? `Details: ${parts.join(", ")}.` : "";
 }

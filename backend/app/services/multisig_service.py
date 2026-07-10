@@ -1,6 +1,7 @@
 from app.errors import BitScopeError
 from app.rpc.client import BitcoinRpcClient
 from app.rpc.types import JsonValue
+from app.services.spend_preflight import SpendPreflight
 
 
 class MultisigService:
@@ -80,6 +81,21 @@ class MultisigService:
         clean_wallet = self._clean(wallet_name, "wallet name")
         clean_address = self._clean(multisig_address, "multisig address")
         amount = self._amount(amount_btc)
+        preflight = SpendPreflight(self.rpc_client)
+        validation = preflight.validate_address(
+            clean_address,
+            "INVALID_MULTISIG_ADDRESS",
+            "Provide a valid multisig address from the current regtest node before funding it.",
+        )
+        balance = preflight.require_mature_balance(
+            clean_wallet,
+            amount,
+            "MULTISIG_INSUFFICIENT_MATURE_FUNDS",
+            (
+                "The funding wallet does not have enough mature spendable balance for this multisig funding transaction. "
+                "Mine enough regtest blocks to this wallet so coinbase rewards reach 101 confirmations, then retry."
+            ),
+        )
         txid = self._require_str(
             self.rpc_client.call("sendtoaddress", [clean_address, amount], wallet_name=clean_wallet),
             "sendtoaddress",
@@ -87,9 +103,13 @@ class MultisigService:
         )
 
         block_hashes: list[str] = []
-        raw: dict[str, object] = {"sendtoaddress": txid}
-        cli_commands = [f"bitcoin-cli -rpcwallet={clean_wallet} sendtoaddress {clean_address} {amount:.8f}"]
-        rpc_methods = ["sendtoaddress"]
+        raw: dict[str, object] = {"validateaddress": validation, "getbalances": balance["getbalances"], "sendtoaddress": txid}
+        cli_commands = [
+            f"bitcoin-cli validateaddress {clean_address}",
+            f"bitcoin-cli -rpcwallet={clean_wallet} getbalances",
+            f"bitcoin-cli -rpcwallet={clean_wallet} sendtoaddress {clean_address} {amount:.8f}",
+        ]
+        rpc_methods = ["validateaddress", "getbalances", "sendtoaddress"]
         if mine_confirmation:
             mining_address = self._require_str(
                 self.rpc_client.call("getnewaddress", ["bitscope-multisig-confirmation", "bech32"], wallet_name=clean_wallet),
@@ -127,6 +147,17 @@ class MultisigService:
         clean_multisig = self._clean(multisig_address, "multisig address")
         clean_destination = self._clean(destination_address, "destination address")
         amount = self._amount(amount_btc)
+        preflight = SpendPreflight(self.rpc_client)
+        multisig_validation = preflight.validate_address(
+            clean_multisig,
+            "INVALID_MULTISIG_ADDRESS",
+            "Provide a valid multisig address from the current regtest node before creating a PSBT spend.",
+        )
+        destination_validation = preflight.validate_address(
+            clean_destination,
+            "INVALID_MULTISIG_DESTINATION_ADDRESS",
+            "Provide a valid destination address from the current regtest node before creating a multisig PSBT spend.",
+        )
 
         utxos_value = self.rpc_client.call("listunspent", [0, 9999999, [clean_multisig]], wallet_name=clean_wallet)
         utxos = [utxo for utxo in utxos_value if isinstance(utxo, dict)] if isinstance(utxos_value, list) else []
@@ -177,18 +208,27 @@ class MultisigService:
             "fee_btc": self._optional_float(created.get("fee")),
             "change_position": self._optional_int(created.get("changepos")),
             "cli_commands": [
+                f"bitcoin-cli validateaddress {clean_multisig}",
+                f"bitcoin-cli validateaddress {clean_destination}",
                 f"bitcoin-cli -rpcwallet={clean_wallet} listunspent 0 9999999 '[\"{clean_multisig}\"]'",
                 f"bitcoin-cli -rpcwallet={clean_wallet} walletcreatefundedpsbt '[<multisig-inputs>]' '[{{\"{clean_destination}\":{amount:.8f}}}]' 0 '{{\"includeWatching\":true,\"changeAddress\":\"{clean_multisig}\"}}' true",
                 f"bitcoin-cli -rpcwallet={clean_wallet} walletprocesspsbt <psbt> true",
                 f"bitcoin-cli finalizepsbt <processed-psbt> {str(extract).lower()}",
             ],
-            "rpc_methods": ["listunspent", "walletcreatefundedpsbt", "walletprocesspsbt", "finalizepsbt"],
+            "rpc_methods": ["validateaddress", "listunspent", "walletcreatefundedpsbt", "walletprocesspsbt", "finalizepsbt"],
             "concepts": ["Multisig", "PSBT", "Signing threshold", "Finalization", "Wallet UTXO"],
             "explanation": (
                 "The wallet builds a PSBT spending UTXOs from the multisig address, signs with the keys it controls, "
                 "and asks Bitcoin Core to finalize the PSBT. Extraction returns raw transaction hex without broadcasting."
             ),
-            "raw": {"listunspent": utxos, "walletcreatefundedpsbt": created, "walletprocesspsbt": processed, "finalizepsbt": finalized},
+            "raw": {
+                "validate_multisig_address": multisig_validation,
+                "validate_destination_address": destination_validation,
+                "listunspent": utxos,
+                "walletcreatefundedpsbt": created,
+                "walletprocesspsbt": processed,
+                "finalizepsbt": finalized,
+            },
         }
 
     def _require_regtest(self) -> None:

@@ -1,6 +1,7 @@
 from app.errors import BitScopeError
 from app.rpc.client import BitcoinRpcClient
 from app.rpc.types import JsonValue
+from app.services.spend_preflight import SpendPreflight
 
 
 OPCODE_NAMES = {
@@ -148,10 +149,12 @@ class ScriptService:
         data_hex = self._encode_op_return_data(data, clean_format)
         data_bytes = len(bytes.fromhex(data_hex))
         output_script_hex = self._op_return_script_hex(data_hex)
+        preflight = SpendPreflight(self.rpc_client)
 
         outputs: list[dict[str, object]] = [{"data": data_hex}]
         clean_address = self._clean_optional_text(destination_address)
         clean_amount = None
+        validation: dict[str, object] | None = None
         if clean_address or amount_btc is not None:
             if not clean_address:
                 raise BitScopeError(
@@ -160,7 +163,21 @@ class ScriptService:
                     status_code=400,
                 )
             clean_amount = self._clean_amount(amount_btc)
+            validation = preflight.validate_address(
+                clean_address,
+                "INVALID_OP_RETURN_DESTINATION_ADDRESS",
+                "Provide a valid destination address from the current regtest node before adding a spend output.",
+            )
             outputs.insert(0, {clean_address: clean_amount})
+        balance = preflight.require_mature_balance(
+            clean_wallet,
+            clean_amount or 0.0,
+            "OP_RETURN_INSUFFICIENT_MATURE_FUNDS",
+            (
+                "The wallet does not have enough mature spendable balance to fund this OP_RETURN transaction and its fee. "
+                "Mine enough regtest blocks to this wallet so coinbase rewards reach 101 confirmations, then retry."
+            ),
+        )
 
         unsigned_hex = self._require_str(
             self.rpc_client.call("createrawtransaction", [[], outputs]),
@@ -181,21 +198,28 @@ class ScriptService:
         txid = self._optional_str(decoded.get("txid"))
 
         raw: dict[str, object] = {
+            "getbalances": balance["getbalances"],
             "createrawtransaction": unsigned_hex,
             "fundrawtransaction": funded,
             "signrawtransactionwithwallet": signed,
             "decoderawtransaction": decoded,
             "testmempoolaccept": mempool_accept,
         }
+        if validation is not None:
+            raw["validateaddress"] = validation
         cli_outputs = self._cli_json(outputs)
         cli_commands = [
+            f"bitcoin-cli -rpcwallet={clean_wallet} getbalances",
             f"bitcoin-cli createrawtransaction [] '{cli_outputs}'",
             f"bitcoin-cli -rpcwallet={clean_wallet} fundrawtransaction {unsigned_hex}",
             f"bitcoin-cli -rpcwallet={clean_wallet} signrawtransactionwithwallet {funded_hex}",
             f"bitcoin-cli decoderawtransaction {signed_hex or funded_hex}",
             f"bitcoin-cli testmempoolaccept '[\"{signed_hex or funded_hex}\"]'",
         ]
-        rpc_methods = ["createrawtransaction", "fundrawtransaction", "signrawtransactionwithwallet", "decoderawtransaction", "testmempoolaccept"]
+        rpc_methods = ["getbalances", "createrawtransaction", "fundrawtransaction", "signrawtransactionwithwallet", "decoderawtransaction", "testmempoolaccept"]
+        if validation is not None:
+            cli_commands.insert(0, f"bitcoin-cli validateaddress {clean_address}")
+            rpc_methods.insert(0, "validateaddress")
         confirmation_hashes: list[str] = []
 
         if broadcast:

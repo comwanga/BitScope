@@ -1,6 +1,7 @@
 from app.errors import BitScopeError
 from app.rpc.client import BitcoinRpcClient
 from app.rpc.types import JsonValue
+from app.services.spend_preflight import SpendPreflight
 
 
 class RegtestService:
@@ -56,7 +57,25 @@ class RegtestService:
         self._require_regtest()
         clean_wallet = self._clean(wallet_name, "wallet name")
         clean_address = self._clean(address, "destination address")
-        txid = self.rpc_client.call("sendtoaddress", [clean_address, amount_btc], wallet_name=clean_wallet)
+        amount = self._amount(amount_btc)
+        preflight = SpendPreflight(self.rpc_client)
+        validation = preflight.validate_address(
+            clean_address,
+            "INVALID_REGTEST_ADDRESS",
+            "Provide a valid address from the current regtest node. Addresses copied from an older regtest reset or wallet run can be stale.",
+        )
+        balance = preflight.require_mature_balance(
+            clean_wallet,
+            amount,
+            "REGTEST_INSUFFICIENT_MATURE_FUNDS",
+            (
+                "The sending wallet does not have enough mature spendable balance. Mine enough regtest blocks to this wallet "
+                "so coinbase rewards reach 101 confirmations, then retry the faucet send."
+            ),
+            fee_headroom_btc=0.0,
+        )
+
+        txid = self.rpc_client.call("sendtoaddress", [clean_address, amount], wallet_name=clean_wallet)
         if not isinstance(txid, str):
             raise BitScopeError(
                 code="BITCOIN_CORE_INVALID_RESPONSE",
@@ -66,9 +85,13 @@ class RegtestService:
             )
 
         confirmation_hashes: list[str] = []
-        raw: dict[str, JsonValue] = {"sendtoaddress": txid}
-        commands = [f"bitcoin-cli -rpcwallet={clean_wallet} sendtoaddress {clean_address} {amount_btc:.8f}"]
-        rpc_methods = ["sendtoaddress"]
+        raw: dict[str, JsonValue] = {"validateaddress": validation, "getbalances": balance["getbalances"], "sendtoaddress": txid}
+        commands = [
+            f"bitcoin-cli validateaddress {clean_address}",
+            f"bitcoin-cli -rpcwallet={clean_wallet} getbalances",
+            f"bitcoin-cli -rpcwallet={clean_wallet} sendtoaddress {clean_address} {amount:.8f}",
+        ]
+        rpc_methods = ["validateaddress", "getbalances", "sendtoaddress"]
 
         if mine_confirmation:
             mined = self.mine(1, wallet_name=clean_wallet)
@@ -81,7 +104,9 @@ class RegtestService:
             "txid": txid,
             "wallet_name": clean_wallet,
             "address": clean_address,
-            "amount_btc": amount_btc,
+            "amount_btc": amount,
+            "trusted_balance_btc": balance["trusted_btc"],
+            "immature_balance_btc": balance["immature_btc"],
             "confirmation_block_hashes": confirmation_hashes,
             "cli_commands": commands,
             "rpc_methods": rpc_methods,
@@ -116,3 +141,14 @@ class RegtestService:
                 status_code=400,
             )
         return cleaned
+
+    @staticmethod
+    def _amount(value: float) -> float:
+        amount = round(float(value), 8)
+        if amount <= 0:
+            raise BitScopeError(
+                code="INVALID_REGTEST_REQUEST",
+                message="Amount must be greater than zero.",
+                status_code=400,
+            )
+        return amount

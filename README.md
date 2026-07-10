@@ -30,7 +30,7 @@ Implemented learning surfaces include:
 - Wallet, Regtest, Multisig, PSBT, Timelocks, Descriptors, Taproot, Keys.
 - Script decoder, Script Lab, OP_RETURN Data Tx builder, and Learn library.
 
-For the full route and service map, see [docs/architecture.md](docs/architecture.md). For the curriculum audit and remaining polish areas, see [docs/curriculum-gap-analysis.md](docs/curriculum-gap-analysis.md).
+For the full route and service map, see [docs/architecture.md](docs/architecture.md). For the curriculum audit and remaining polish areas, see [docs/curriculum-gap-analysis.md](docs/curriculum-gap-analysis.md). For the current hardening and product roadmap, see [docs/project-audit-roadmap.md](docs/project-audit-roadmap.md).
 
 ## Architecture
 
@@ -142,6 +142,8 @@ CI runs backend tests, frontend build, and Docker Compose config validation thro
 - [Docker regtest](docs/docker-regtest.md): full local stack, reset, and configuration.
 - [Regtest guide](docs/regtest-guide.md): mining, coinbase maturity, and demo flow.
 - [Demo script](docs/demo-script.md): reviewer-facing walkthrough.
+- [Live RPC testing](docs/live-rpc-testing.md): isolated live-node pytest lifecycle and regtest failure mitigations.
+- [Project audit roadmap](docs/project-audit-roadmap.md): brutal audit, Demo Mode plan, release automation, analytics, and performance strategy.
 - [Limitations](docs/limitations.md): no hosted APIs, address-history limits, mainnet safety.
 - [Curriculum gap analysis](docs/curriculum-gap-analysis.md): coverage against the study goals.
 

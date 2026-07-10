@@ -2,6 +2,7 @@ from app.errors import BitScopeError
 from app.rpc.client import BitcoinRpcClient
 from app.rpc.errors import RpcError
 from app.rpc.types import JsonValue
+from app.services.spend_preflight import SpendPreflight
 
 
 class TransactionService:
@@ -218,6 +219,11 @@ class TransactionService:
         clean_txid = self._clean_txid(parent_txid)
         clean_address = self._clean(destination_address, "destination address")
         clean_amount = self._clean_amount(amount_btc)
+        validation = SpendPreflight(self.rpc_client).validate_address(
+            clean_address,
+            "INVALID_CPFP_DESTINATION_ADDRESS",
+            "Provide a valid destination address from the current regtest node before building a CPFP child.",
+        )
 
         input_ref = {"txid": clean_txid, "vout": int(parent_vout)}
         unsigned_hex = self._require_str(
@@ -242,6 +248,7 @@ class TransactionService:
         mempool_accept = self.rpc_client.call("testmempoolaccept", [[signed_hex or funded_hex]]) if signed_hex else []
         child_txid = self._optional_str(decoded.get("txid"))
         raw: dict[str, object] = {
+            "validateaddress": validation,
             "createrawtransaction": unsigned_hex,
             "fundrawtransaction": funded,
             "signrawtransactionwithwallet": signed,
@@ -249,12 +256,13 @@ class TransactionService:
             "testmempoolaccept": mempool_accept,
         }
         cli_commands = [
+            f"bitcoin-cli validateaddress {clean_address}",
             f"bitcoin-cli createrawtransaction '[{self._cli_json(input_ref)}]' '{{\"{clean_address}\":{clean_amount:.8f}}}'",
             f"bitcoin-cli -rpcwallet={clean_wallet} fundrawtransaction {unsigned_hex} '{self._cli_json(options)}'",
             f"bitcoin-cli -rpcwallet={clean_wallet} signrawtransactionwithwallet {funded_hex}",
             f"bitcoin-cli testmempoolaccept '[\"{signed_hex or funded_hex}\"]'",
         ]
-        rpc_methods = ["createrawtransaction", "fundrawtransaction", "signrawtransactionwithwallet", "decoderawtransaction", "testmempoolaccept"]
+        rpc_methods = ["validateaddress", "createrawtransaction", "fundrawtransaction", "signrawtransactionwithwallet", "decoderawtransaction", "testmempoolaccept"]
 
         if broadcast:
             if not signed_hex or not complete:
@@ -302,6 +310,21 @@ class TransactionService:
         clean_wallet = self._clean(wallet_name, "wallet name")
         clean_address = self._clean(address, "destination address")
         clean_amount = self._clean_amount(amount_btc)
+        preflight = SpendPreflight(self.rpc_client)
+        validation = preflight.validate_address(
+            clean_address,
+            "INVALID_REGTEST_TRANSACTION_ADDRESS",
+            "Provide a valid destination address from the current regtest node before building this transaction.",
+        )
+        balance = preflight.require_mature_balance(
+            clean_wallet,
+            clean_amount,
+            "REGTEST_TRANSACTION_INSUFFICIENT_MATURE_FUNDS",
+            (
+                "The wallet does not have enough mature spendable balance to fund this transaction. Mine enough regtest blocks "
+                "to this wallet so coinbase rewards reach 101 confirmations, then retry."
+            ),
+        )
 
         unsigned_hex = self._require_str(
             self.rpc_client.call("createrawtransaction", [[], {clean_address: clean_amount}]),
@@ -333,8 +356,19 @@ class TransactionService:
             decoded,
             txid,
             [],
-            {"createrawtransaction": unsigned_hex, "fundrawtransaction": funded, "signrawtransactionwithwallet": signed, "decoderawtransaction": decoded},
+            {
+                "validateaddress": validation,
+                "getbalances": balance["getbalances"],
+                "createrawtransaction": unsigned_hex,
+                "fundrawtransaction": funded,
+                "signrawtransactionwithwallet": signed,
+                "decoderawtransaction": decoded,
+            },
             broadcast_txid=None,
+            preflight={
+                "cli_commands": [f"bitcoin-cli validateaddress {clean_address}", f"bitcoin-cli -rpcwallet={clean_wallet} getbalances"],
+                "rpc_methods": ["validateaddress", "getbalances"],
+            },
         )
 
     def send_regtest_transaction(
@@ -451,10 +485,13 @@ class TransactionService:
         confirmation_hashes: list[str],
         raw: dict[str, object],
         broadcast_txid: str | None,
+        preflight: dict[str, list[str]] | None = None,
     ) -> dict[str, object]:
         fee = self._optional_float(funded.get("fee"))
         change_position = self._optional_int(funded.get("changepos"))
         display_txid = broadcast_txid or txid
+        preflight_commands = preflight["cli_commands"] if preflight else []
+        preflight_methods = preflight["rpc_methods"] if preflight else []
         return {
             "wallet_name": wallet_name,
             "address": address,
@@ -468,12 +505,13 @@ class TransactionService:
             "change_position": change_position,
             "confirmation_block_hashes": confirmation_hashes,
             "cli_commands": [
+                *preflight_commands,
                 f"bitcoin-cli createrawtransaction [] '{{\"{address}\":{amount_btc:.8f}}}'",
                 f"bitcoin-cli -rpcwallet={wallet_name} fundrawtransaction {unsigned_hex}",
                 f"bitcoin-cli -rpcwallet={wallet_name} signrawtransactionwithwallet {funded_hex}",
                 f"bitcoin-cli decoderawtransaction {signed_hex or funded_hex}",
             ],
-            "rpc_methods": ["createrawtransaction", "fundrawtransaction", "signrawtransactionwithwallet", "decoderawtransaction"],
+            "rpc_methods": [*preflight_methods, "createrawtransaction", "fundrawtransaction", "signrawtransactionwithwallet", "decoderawtransaction"],
             "concepts": ["Regtest", "Raw transaction", "Coin selection", "Change output", "Wallet signing", "Broadcast"],
             "explanation": (
                 "This regtest builder starts with an output-only raw transaction, asks the wallet to select inputs and add change, "

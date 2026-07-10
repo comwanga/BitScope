@@ -24,15 +24,30 @@ class TimelockService:
         if sequence < 0 or sequence > 4_294_967_295:
             raise BitScopeError(code="INVALID_TIMELOCK_REQUEST", message="Sequence must fit in uint32.", status_code=400)
 
+        validation = self._as_dict(self.rpc_client.call("validateaddress", [clean_address]))
+        if validation.get("isvalid") is not True:
+            raise BitScopeError(
+                code="INVALID_TIMELOCK_ADDRESS",
+                message=(
+                    "Provide a valid destination address from the current regtest node. Regtest addresses from a previous reset "
+                    "or deleted wallet are stale."
+                ),
+                status_code=400,
+                details={"address": clean_address, "rpc_method": "validateaddress"},
+            )
+
         utxos_value = self.rpc_client.call("listunspent", [1, 9999999], wallet_name=clean_wallet)
         utxos = [utxo for utxo in utxos_value if isinstance(utxo, dict)] if isinstance(utxos_value, list) else []
-        selected = next((utxo for utxo in utxos if self._optional_float(utxo.get("amount")) and self._optional_float(utxo.get("amount")) > amount), None)
+        selected = next((utxo for utxo in utxos if self._is_spendable_utxo(utxo, amount)), None)
         if selected is None:
             raise BitScopeError(
                 code="TIMELOCK_UTXO_NOT_FOUND",
-                message="Bitcoin Core did not find a confirmed wallet UTXO large enough for this timelock transaction.",
+                message=(
+                    "Bitcoin Core did not find a mature, spendable wallet UTXO large enough for this timelock transaction. "
+                    "If this wallet was just mined on regtest, mine enough blocks for coinbase rewards to reach 101 confirmations."
+                ),
                 status_code=404,
-                details={"wallet_name": clean_wallet, "amount_btc": amount},
+                details={"wallet_name": clean_wallet, "amount_btc": amount, "minimum_coinbase_confirmations": 101},
             )
         selected_txid = self._require_str(selected.get("txid"), "listunspent", "Bitcoin Core returned a UTXO without a txid.")
         selected_vout = self._optional_int(selected.get("vout"))
@@ -75,19 +90,21 @@ class TimelockService:
             "change_position": self._optional_int(funded.get("changepos")),
             "mempool_accept": accept,
             "cli_commands": [
+                f"bitcoin-cli validateaddress {clean_address}",
                 f"bitcoin-cli -rpcwallet={clean_wallet} listunspent 1 9999999",
                 f"bitcoin-cli createrawtransaction '[{{\"txid\":\"{selected_txid}\",\"vout\":{selected_vout},\"sequence\":{int(sequence)}}}]' '{{\"{clean_address}\":{amount:.8f}}}' {int(locktime)}",
                 f"bitcoin-cli -rpcwallet={clean_wallet} fundrawtransaction {unsigned_hex} '{{\"add_inputs\":false,\"lockUnspents\":true}}'",
                 f"bitcoin-cli -rpcwallet={clean_wallet} signrawtransactionwithwallet {funded_hex}",
                 f"bitcoin-cli testmempoolaccept '[\"{signed_hex or funded_hex}\"]'",
             ],
-            "rpc_methods": ["listunspent", "createrawtransaction", "fundrawtransaction", "signrawtransactionwithwallet", "decoderawtransaction", "testmempoolaccept"],
+            "rpc_methods": ["validateaddress", "listunspent", "createrawtransaction", "fundrawtransaction", "signrawtransactionwithwallet", "decoderawtransaction", "testmempoolaccept"],
             "concepts": ["nLockTime", "Sequence", "Mempool policy", "Regtest", "Finality"],
             "explanation": (
                 "A transaction-level locktime is only enforced when at least one input sequence is below final. "
                 "BitScope builds a funded transaction, adjusts input sequences, signs it, and asks Bitcoin Core whether mempool policy accepts it."
             ),
             "raw": {
+                "validateaddress": validation,
                 "listunspent": utxos,
                 "createrawtransaction": unsigned_hex,
                 "fundrawtransaction": funded,
@@ -171,6 +188,21 @@ class TimelockService:
         if value <= 0:
             raise BitScopeError(code="INVALID_TIMELOCK_REQUEST", message="Amount must be greater than zero.", status_code=400)
         return round(float(value), 8)
+
+    @classmethod
+    def _is_spendable_utxo(cls, utxo: dict[str, object], amount: float) -> bool:
+        utxo_amount = cls._optional_float(utxo.get("amount"))
+        if utxo_amount is None or utxo_amount <= amount:
+            return False
+        if utxo.get("spendable") is False or utxo.get("safe") is False:
+            return False
+        confirmations = cls._optional_int(utxo.get("confirmations"))
+        generated = utxo.get("generated") is True
+        if generated and (confirmations is None or confirmations < 101):
+            return False
+        if confirmations is not None and confirmations < 1:
+            return False
+        return True
 
     @staticmethod
     def _as_dict(value: JsonValue) -> dict[str, object]:

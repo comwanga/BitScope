@@ -1,6 +1,7 @@
 from app.errors import BitScopeError
 from app.rpc.client import BitcoinRpcClient
 from app.rpc.types import JsonValue
+from app.services.spend_preflight import SpendPreflight
 
 
 class PsbtService:
@@ -10,7 +11,23 @@ class PsbtService:
     def create(self, wallet_name: str, recipient_address: str, amount_btc: float) -> dict[str, object]:
         clean_wallet = self._clean(wallet_name, "wallet name")
         clean_address = self._clean(recipient_address, "recipient address")
-        outputs = [{clean_address: amount_btc}]
+        amount = self._amount(amount_btc)
+        preflight = SpendPreflight(self.rpc_client)
+        validation = preflight.validate_address(
+            clean_address,
+            "INVALID_PSBT_RECIPIENT_ADDRESS",
+            "Provide a valid recipient address from the current Bitcoin Core node before creating a funded PSBT.",
+        )
+        balance = preflight.require_mature_balance(
+            clean_wallet,
+            amount,
+            "PSBT_INSUFFICIENT_MATURE_FUNDS",
+            (
+                "The wallet does not have enough mature spendable balance to fund this PSBT. Mine enough regtest blocks "
+                "to this wallet so coinbase rewards reach 101 confirmations, then retry."
+            ),
+        )
+        outputs = [{clean_address: amount}]
         result = self._as_dict(
             self.rpc_client.call(
                 "walletcreatefundedpsbt",
@@ -35,19 +52,21 @@ class PsbtService:
             "fee_btc": self._optional_float(result.get("fee")),
             "change_position": self._optional_int(result.get("changepos")),
             "recipient_address": clean_address,
-            "amount_btc": amount_btc,
+            "amount_btc": amount,
             "decoded": decoded,
             "cli_commands": [
-                f"bitcoin-cli -rpcwallet={clean_wallet} walletcreatefundedpsbt [] '[{{\"{clean_address}\":{amount_btc:.8f}}}]' 0 '{{\"includeWatching\":true}}' true",
+                f"bitcoin-cli validateaddress {clean_address}",
+                f"bitcoin-cli -rpcwallet={clean_wallet} getbalances",
+                f"bitcoin-cli -rpcwallet={clean_wallet} walletcreatefundedpsbt [] '[{{\"{clean_address}\":{amount:.8f}}}]' 0 '{{\"includeWatching\":true}}' true",
                 "bitcoin-cli decodepsbt <psbt>",
             ],
-            "rpc_methods": ["walletcreatefundedpsbt", "decodepsbt"],
+            "rpc_methods": ["validateaddress", "getbalances", "walletcreatefundedpsbt", "decodepsbt"],
             "concepts": ["PSBT", "Coin selection", "Change output", "Fee"],
             "explanation": (
                 "Bitcoin Core selects wallet UTXOs and builds an unsigned funded PSBT. Nothing is broadcast; "
                 "the PSBT must still be processed, finalized, and sent by a separate explicit action."
             ),
-            "raw": {"walletcreatefundedpsbt": result, "decodepsbt": decoded["raw"]["decodepsbt"]},
+            "raw": {"validateaddress": validation, "getbalances": balance["getbalances"], "walletcreatefundedpsbt": result, "decodepsbt": decoded["raw"]["decodepsbt"]},
         }
 
     def decode(self, psbt: str) -> dict[str, object]:
@@ -134,6 +153,16 @@ class PsbtService:
                 status_code=400,
             )
         return cleaned
+
+    @staticmethod
+    def _amount(value: float) -> float:
+        if value <= 0:
+            raise BitScopeError(
+                code="INVALID_PSBT_REQUEST",
+                message="Amount must be greater than zero.",
+                status_code=400,
+            )
+        return round(float(value), 8)
 
     @staticmethod
     def _as_dict(value: JsonValue) -> dict[str, object]:

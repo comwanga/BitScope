@@ -25,6 +25,10 @@ class FakeRpcClient:
             return {"address": "bcrt1qmulti", "redeemScript": "5221aa52ae", "descriptor": "wsh(multi(...))#test"}
         if method == "addmultisigaddress":
             return {"address": "bcrt1qmulti", "redeemScript": "5221aa52ae", "descriptor": "wsh(multi(...))#test", "warnings": []}
+        if method == "validateaddress":
+            return {"isvalid": True}
+        if method == "getbalances":
+            return {"mine": {"trusted": 5.0, "immature": 0.0}}
         if method == "sendtoaddress":
             return "11" * 32
         if method == "generatetoaddress":
@@ -58,6 +62,8 @@ def test_fund_multisig_sends_and_mines_confirmation() -> None:
 
     assert result["txid"] == "11" * 32
     assert result["confirmation_block_hashes"] == ["block-0"]
+    assert ("validateaddress", ["bcrt1qmulti"], None) in rpc.calls
+    assert ("getbalances", [], "demo") in rpc.calls
     assert ("sendtoaddress", ["bcrt1qmulti", 0.5], "demo") in rpc.calls
 
 
@@ -69,6 +75,8 @@ def test_spend_multisig_uses_wallet_psbt_flow() -> None:
     assert result["complete"] is True
     assert result["hex"] == "0200000000"
     assert result["input_count"] == 1
+    assert ("validateaddress", ["bcrt1qmulti"], None) in rpc.calls
+    assert ("validateaddress", ["bcrt1qdest"], None) in rpc.calls
     assert ("listunspent", [0, 9999999, ["bcrt1qmulti"]], "demo") in rpc.calls
     assert ("walletprocesspsbt", ["cHNidP8BAHE=", True], "demo") in rpc.calls
 
@@ -78,3 +86,22 @@ def test_multisig_blocks_non_regtest_network() -> None:
         MultisigService(FakeRpcClient(network="mainnet")).create("demo", 2, 3, "bech32")  # type: ignore[arg-type]
 
     assert exc_info.value.code == "REGTEST_ONLY"
+
+
+def test_fund_multisig_reports_insufficient_mature_balance_before_send() -> None:
+    class ImmatureRpc(FakeRpcClient):
+        def call(self, method: str, params: list[object] | None = None, wallet_name: str | None = None) -> object:
+            self.calls.append((method, params, wallet_name))
+            if method == "validateaddress":
+                return {"isvalid": True}
+            if method == "getbalances":
+                return {"mine": {"trusted": 0.1, "immature": 50.0}}
+            return super().call(method, params, wallet_name)
+
+    rpc = ImmatureRpc()
+
+    with pytest.raises(BitScopeError) as exc_info:
+        MultisigService(rpc).fund("demo", "bcrt1qmulti", 0.5, False)  # type: ignore[arg-type]
+
+    assert exc_info.value.code == "MULTISIG_INSUFFICIENT_MATURE_FUNDS"
+    assert ("sendtoaddress", ["bcrt1qmulti", 0.5], "demo") not in rpc.calls

@@ -21,6 +21,10 @@ class FakeRpcClient:
         if method == "generatetoaddress":
             blocks = params[0] if params else 0
             return [f"block-{index}" for index in range(int(blocks))]
+        if method == "validateaddress":
+            return {"isvalid": True}
+        if method == "getbalances":
+            return {"mine": {"trusted": 2.0, "immature": 0.0}}
         if method == "sendtoaddress":
             return "11" * 32
         raise AssertionError(f"unexpected method {method}")
@@ -75,7 +79,47 @@ def test_faucet_sends_and_mines_confirmation() -> None:
     assert result["txid"] == "11" * 32
     assert result["confirmation_block_hashes"] == ["block-0"]
     assert rpc.calls == [
+        ("validateaddress", ["bcrt1qdest"], None),
+        ("getbalances", [], "demo"),
         ("sendtoaddress", ["bcrt1qdest", 1.25], "demo"),
         ("getnewaddress", ["bitscope-mining", "bech32"], "demo"),
         ("generatetoaddress", [1, "bcrt1qmine"], None),
     ]
+
+
+def test_faucet_rejects_stale_or_invalid_address() -> None:
+    class InvalidAddressRpc(FakeRpcClient):
+        def call(self, method: str, params: list[object] | None = None, wallet_name: str | None = None) -> object:
+            self.calls.append((method, params, wallet_name))
+            if method == "validateaddress":
+                return {"isvalid": False}
+            return super().call(method, params, wallet_name)
+
+    rpc = InvalidAddressRpc()
+
+    with pytest.raises(BitScopeError) as exc_info:
+        RegtestService(rpc).faucet("demo", "stale-address", 1.0)  # type: ignore[arg-type]
+
+    assert exc_info.value.code == "INVALID_REGTEST_ADDRESS"
+    assert rpc.calls == [("validateaddress", ["stale-address"], None)]
+
+
+def test_faucet_reports_immature_coinbase_balance_before_send() -> None:
+    class ImmatureBalanceRpc(FakeRpcClient):
+        def call(self, method: str, params: list[object] | None = None, wallet_name: str | None = None) -> object:
+            self.calls.append((method, params, wallet_name))
+            if method == "validateaddress":
+                return {"isvalid": True}
+            if method == "getbalances":
+                return {"mine": {"trusted": 50.0, "immature": 5000.0}}
+            return super().call(method, params, wallet_name)
+
+    rpc = ImmatureBalanceRpc()
+
+    with pytest.raises(BitScopeError) as exc_info:
+        RegtestService(rpc).faucet("demo", "bcrt1qdest", 100.0)  # type: ignore[arg-type]
+
+    assert exc_info.value.code == "REGTEST_INSUFFICIENT_MATURE_FUNDS"
+    assert exc_info.value.details["trusted_btc"] == 50.0
+    assert exc_info.value.details["immature_btc"] == 5000.0
+    assert ("sendtoaddress", ["bcrt1qdest", 100.0], "demo") not in rpc.calls

@@ -54,13 +54,31 @@ For the full route and service map, see [docs/architecture.md](docs/architecture
 - **Frontend:** Next.js, TypeScript, Tailwind CSS.
 - **Runtime source:** local Bitcoin Core RPC.
 - **Optional runtime:** Docker Compose regtest stack with Bitcoin Core, backend, and frontend.
+- **Public site:** static GitHub Pages docs and screenshots from `docs-site/`.
 
 ```text
 backend/   FastAPI routes, services, RPC client, Pydantic models, tests
 frontend/  Next.js app router pages, reusable components, typed API client
 docs/      architecture, setup, limitations, regtest, Docker, demo, curriculum audit
+docs-site/ GitHub Pages static documentation and screenshots
 scripts/   local setup and Docker Compose helpers
 ```
+
+The GitHub Pages deployment is intentionally documentation-only. The working BitScope app should run locally so the backend can connect to the user's own Bitcoin Core RPC endpoint without exposing credentials.
+
+## Public Docs Site
+
+The repository includes a static GitHub Pages site in `docs-site/` for public project visibility, screenshots, and architecture notes. It does not host the BitScope backend or connect to Bitcoin Core.
+
+Enable it in GitHub with:
+
+```text
+Settings -> Pages -> Source: GitHub Actions
+```
+
+The workflow at `.github/workflows/pages.yml` publishes `docs-site/` on pushes to `main` and can also be run manually. The expected project URL is `https://comwanga.github.io/BitScope/` unless a custom domain is configured.
+
+The docs site uses plain static HTML/CSS with relative asset paths, so refreshes work on GitHub Pages project hosting.
 
 ## Quick Start
 
@@ -153,7 +171,7 @@ CI runs backend tests, frontend build, and Docker Compose config validation thro
 
 ## Documentation
 
-- [Architecture](docs/architecture.md): route map, services, phases, safety model.
+- [Architecture](docs/architecture.md): local-first topology, service boundaries, route map, and safety model.
 - [Bitcoin Core setup](docs/bitcoin-core-setup.md): regtest RPC and optional ZMQ configuration.
 - [Docker regtest](docs/docker-regtest.md): full local stack, reset, and configuration.
 - [Regtest guide](docs/regtest-guide.md): mining, coinbase maturity, and demo flow.
@@ -169,4 +187,4 @@ The intended demo starts from node status, creates or loads a regtest wallet, mi
 
 ## License
 
-MIT License.
+[MIT License](LICENSE).

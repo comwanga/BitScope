@@ -17,7 +17,7 @@ BitScope is a local-first Bitcoin Core learning laboratory. The public-facing ma
 backend/    FastAPI routes, service layer, Bitcoin Core RPC client, Pydantic models, tests
 frontend/   Next.js app router pages, reusable components, typed API client
 docs/       Architecture, setup, limitations, regtest, Docker, testing, and demo material
-docs-site/  Static Vercel documentation site for screenshots and project overview
+docs-site/  Static GitHub Pages documentation site for screenshots and project overview
 scripts/    Local setup and Docker Compose helpers
 ```
 
@@ -182,7 +182,7 @@ Public hosting is not appropriate for:
 - A browser-facing RPC credential flow.
 - Mainnet signing, spending, or wallet operations.
 
-For public visibility, the repository includes `docs-site/`, a static Vercel-ready documentation site. For real learning workflows, users should run BitScope locally or through the Docker regtest stack.
+For public visibility, the repository includes `docs-site/`, a static GitHub Pages documentation site. For real learning workflows, users should run BitScope locally or through the Docker regtest stack.
 
 ## Bitcoin Core Limits
 

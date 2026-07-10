@@ -54,30 +54,31 @@ For the full route and service map, see [docs/architecture.md](docs/architecture
 - **Frontend:** Next.js, TypeScript, Tailwind CSS.
 - **Runtime source:** local Bitcoin Core RPC.
 - **Optional runtime:** Docker Compose regtest stack with Bitcoin Core, backend, and frontend.
-- **Public site:** static Vercel docs and screenshots from `docs-site/`.
+- **Public site:** static GitHub Pages docs and screenshots from `docs-site/`.
 
 ```text
 backend/   FastAPI routes, services, RPC client, Pydantic models, tests
 frontend/  Next.js app router pages, reusable components, typed API client
 docs/      architecture, setup, limitations, regtest, Docker, demo, curriculum audit
-docs-site/ Vercel-hosted static documentation and screenshots
+docs-site/ GitHub Pages static documentation and screenshots
 scripts/   local setup and Docker Compose helpers
 ```
 
-The Vercel deployment is intentionally documentation-only. The working BitScope app should run locally so the backend can connect to the user's own Bitcoin Core RPC endpoint without exposing credentials.
+The GitHub Pages deployment is intentionally documentation-only. The working BitScope app should run locally so the backend can connect to the user's own Bitcoin Core RPC endpoint without exposing credentials.
 
 ## Public Docs Site
 
-The repository includes a static Vercel site in `docs-site/` for public project visibility, screenshots, and architecture notes. It does not host the BitScope backend or connect to Bitcoin Core.
+The repository includes a static GitHub Pages site in `docs-site/` for public project visibility, screenshots, and architecture notes. It does not host the BitScope backend or connect to Bitcoin Core.
 
-Deploy after authenticating with Vercel:
+Enable it in GitHub with:
 
-```powershell
-npx vercel login
-npx vercel --prod --yes
+```text
+Settings -> Pages -> Source: GitHub Actions
 ```
 
-`vercel.json` points Vercel at `docs-site/`, and `.vercelignore` excludes local RPC secrets, virtual environments, build outputs, and logs from local deployment uploads.
+The workflow at `.github/workflows/pages.yml` publishes `docs-site/` on pushes to `main` and can also be run manually. The expected project URL is `https://comwanga.github.io/BitScope/` unless a custom domain is configured.
+
+The docs site uses plain static HTML/CSS with relative asset paths, so refreshes work on GitHub Pages project hosting.
 
 ## Quick Start
 

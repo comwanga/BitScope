@@ -4,6 +4,22 @@
 
 BitScope is a learning-focused Bitcoin Core explorer and laboratory inspired by *Learning Bitcoin from the Command Line*. It is not a hosted block explorer clone: every major screen connects UI output back to `bitcoin-cli`, JSON-RPC methods, raw Bitcoin Core JSON, and a plain-English explanation.
 
+## Screenshots
+
+These screenshots show BitScope interacting with a local regtest node: node status, guided Demo Mode, wallet workflows, transaction inspection, script exploration, and the concept library.
+
+| Node dashboard | Demo Mode |
+| --- | --- |
+| ![BitScope node dashboard](docs/screenshots/dashboard.png) | ![BitScope Demo Mode](docs/screenshots/demo-mode.png) |
+
+| Wallet lab | Transaction explorer |
+| --- | --- |
+| ![BitScope wallet lab](docs/screenshots/wallet-lab.png) | ![BitScope transaction explorer](docs/screenshots/transaction-explorer.png) |
+
+| Script Lab | Learning library |
+| --- | --- |
+| ![BitScope Script Lab](docs/screenshots/script-lab.png) | ![BitScope learning library](docs/screenshots/learning-library.png) |
+
 ## What BitScope Teaches
 
 - Local node state: chain selection, sync, pruning, peers, network reachability, and live status.
@@ -31,22 +47,6 @@ Implemented learning surfaces include:
 - Script decoder, Script Lab, OP_RETURN Data Tx builder, and Learn library.
 
 For the full route and service map, see [docs/architecture.md](docs/architecture.md). For the curriculum audit and remaining polish areas, see [docs/curriculum-gap-analysis.md](docs/curriculum-gap-analysis.md). For the current hardening and product roadmap, see [docs/project-audit-roadmap.md](docs/project-audit-roadmap.md).
-
-## Screenshots
-
-The screenshots below are captured from a local regtest node and show BitScope's default dark interface.
-
-| Node dashboard | Demo Mode |
-| --- | --- |
-| ![BitScope node dashboard](docs/screenshots/dashboard.png) | ![BitScope Demo Mode](docs/screenshots/demo-mode.png) |
-
-| Wallet lab | Transaction explorer |
-| --- | --- |
-| ![BitScope wallet lab](docs/screenshots/wallet-lab.png) | ![BitScope transaction explorer](docs/screenshots/transaction-explorer.png) |
-
-| Script Lab | Learning library |
-| --- | --- |
-| ![BitScope Script Lab](docs/screenshots/script-lab.png) | ![BitScope learning library](docs/screenshots/learning-library.png) |
 
 ## Architecture
 

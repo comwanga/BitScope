@@ -87,6 +87,7 @@ REGTEST_MUTATION_METHODS = WALLET_READ_METHODS | {
     "signrawtransactionwithwallet",
     "walletcreatefundedpsbt",
     "walletprocesspsbt",
+    "unloadwallet",
 }
 
 

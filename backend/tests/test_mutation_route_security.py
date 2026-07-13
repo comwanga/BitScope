@@ -5,7 +5,10 @@ from app.security import require_mutation_access
 
 
 EXPECTED_PROTECTED_MUTATIONS = {
+    ("DELETE", "/api/labs/{session_id}"),
     ("POST", "/api/demo/run"),
+    ("POST", "/api/labs"),
+    ("POST", "/api/labs/{session_id}/reset"),
     ("POST", "/api/multisig/create"),
     ("POST", "/api/multisig/fund"),
     ("POST", "/api/multisig/spend-psbt"),

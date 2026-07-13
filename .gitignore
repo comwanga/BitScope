@@ -11,6 +11,7 @@ venv/
 backend/.env
 backend/.env.docker
 .docker-local/
+backend/data/
 
 # Node / Next.js
 node_modules/

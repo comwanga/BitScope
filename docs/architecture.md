@@ -86,6 +86,7 @@ Services keep Bitcoin-specific behavior out of route handlers:
 - `IntegrationService`: JSON-RPC client examples, wallet RPC paths, SSE, and optional ZMQ configuration.
 - `KeyService`: public descriptor, xpub, derivation path, watch-only wallet, and hardware-wallet PSBT education.
 - `LearningService`: concept catalog and RPC method reference.
+- `LabSessionService`: SQLite-backed isolated lab ownership, resume, reset, export, and safe wallet cleanup.
 
 ## API Surface
 
@@ -99,6 +100,7 @@ All routes are prefixed with `/api`.
 | Mempool and fees | `/mempool`, `/mempool/{txid}`, `/fees` |
 | Addresses and indexing | `/addresses/{address}`, `/index/scan-address` |
 | Wallet and regtest | `/wallets`, `/wallets/create`, `/wallets/load`, `/wallets/{wallet_name}/balance`, `/wallets/{wallet_name}/address`, `/wallets/{wallet_name}/utxos`, `/wallets/{wallet_name}/transactions`, `/regtest/mine`, `/regtest/faucet`, `/demo/run` |
+| Persistent labs | `/labs`, `/labs/{session_id}`, `/labs/{session_id}/reset`, `/labs/{session_id}/export`, `/labs/{session_id}?confirm=true` |
 | Scripts and data | `/scripts/decode`, `/scripts/template`, `/scripts/test-spend`, `/scripts/create-op-return` |
 | PSBT, multisig, timelocks | `/psbt/create`, `/psbt/decode`, `/psbt/wallet-process`, `/psbt/finalize`, `/multisig/create`, `/multisig/fund`, `/multisig/spend-psbt`, `/timelocks/transaction`, `/timelocks/script-template` |
 | Descriptors and Taproot | `/descriptors/analyze`, `/descriptors/wallet/{wallet_name}`, `/taproot/inspect` |

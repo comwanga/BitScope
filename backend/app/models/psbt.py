@@ -5,22 +5,22 @@ from pydantic import BaseModel, Field
 
 class CreatePsbtRequest(BaseModel):
     wallet_name: str = Field(min_length=1, max_length=128)
-    recipient_address: str = Field(min_length=1)
+    recipient_address: str = Field(min_length=1, max_length=128)
     amount_btc: float = Field(gt=0)
 
 
 class DecodePsbtRequest(BaseModel):
-    psbt: str = Field(min_length=1)
+    psbt: str = Field(min_length=1, max_length=1_000_000)
 
 
 class ProcessPsbtRequest(BaseModel):
     wallet_name: str = Field(min_length=1, max_length=128)
-    psbt: str = Field(min_length=1)
+    psbt: str = Field(min_length=1, max_length=1_000_000)
     sign: bool = True
 
 
 class FinalizePsbtRequest(BaseModel):
-    psbt: str = Field(min_length=1)
+    psbt: str = Field(min_length=1, max_length=1_000_000)
     extract: bool = False
 
 

@@ -20,7 +20,7 @@ class RpcMethodsResponse(BaseModel):
 
 
 class RpcExecuteRequest(BaseModel):
-    method: str = Field(min_length=1)
+    method: str = Field(min_length=1, max_length=64)
     params: list[Any] | dict[str, Any] | None = None
 
 

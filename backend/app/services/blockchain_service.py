@@ -2,13 +2,14 @@ import hashlib
 
 from app.errors import BitScopeError
 from app.rpc.client import BitcoinRpcClient
+from app.rpc.capabilities import ReadOnlyRpcClient
 from app.rpc.errors import RpcError
 from app.rpc.types import JsonValue
 
 
 class BlockchainService:
     def __init__(self, rpc_client: BitcoinRpcClient) -> None:
-        self.rpc_client = rpc_client
+        self.rpc_client = ReadOnlyRpcClient(rpc_client)
 
     def get_block(self, query: str) -> dict[str, object]:
         cleaned_query = query.strip()

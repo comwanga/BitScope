@@ -1,13 +1,15 @@
 from app.errors import BitScopeError
 from app.rpc.client import BitcoinRpcClient
+from app.rpc.capabilities import RegtestMutationRpcClient
 from app.rpc.errors import RpcError
 from app.rpc.types import JsonValue
+from app.services.network_safety import NetworkSafetyGuard
 from app.services.spend_preflight import SpendPreflight
 
 
 class TransactionService:
     def __init__(self, rpc_client: BitcoinRpcClient) -> None:
-        self.rpc_client = rpc_client
+        self.rpc_client = RegtestMutationRpcClient(rpc_client)
 
     def get_transaction(self, txid: str) -> dict[str, object]:
         cleaned_txid = self._clean_txid(txid)
@@ -170,7 +172,7 @@ class TransactionService:
         fee_rate_sat_vb: float | None,
         conf_target: int | None,
     ) -> dict[str, object]:
-        self._require_regtest()
+        NetworkSafetyGuard(self.rpc_client).require_regtest()
         clean_wallet = self._clean(wallet_name, "wallet name")
         clean_txid = self._clean_txid(txid)
 
@@ -214,7 +216,7 @@ class TransactionService:
         fee_rate_sat_vb: float | None,
         broadcast: bool,
     ) -> dict[str, object]:
-        self._require_regtest()
+        NetworkSafetyGuard(self.rpc_client).require_regtest()
         clean_wallet = self._clean(wallet_name, "wallet name")
         clean_txid = self._clean_txid(parent_txid)
         clean_address = self._clean(destination_address, "destination address")
@@ -306,7 +308,7 @@ class TransactionService:
         }
 
     def build_regtest_transaction(self, wallet_name: str, address: str, amount_btc: float) -> dict[str, object]:
-        self._require_regtest()
+        NetworkSafetyGuard(self.rpc_client).require_regtest()
         clean_wallet = self._clean(wallet_name, "wallet name")
         clean_address = self._clean(address, "destination address")
         clean_amount = self._clean_amount(amount_btc)
@@ -519,15 +521,6 @@ class TransactionService:
             ),
             "raw": raw,
         }
-
-    def _require_regtest(self) -> None:
-        if self.rpc_client.settings.bitcoin_network != "regtest":
-            raise BitScopeError(
-                code="REGTEST_ONLY",
-                message="This action is only available when BITCOIN_NETWORK is set to regtest.",
-                status_code=400,
-                details={"network": self.rpc_client.settings.bitcoin_network},
-            )
 
     @staticmethod
     def _clean(value: str, label: str) -> str:

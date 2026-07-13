@@ -942,6 +942,26 @@ export type ApiError = {
 };
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
+const LOCAL_ACCESS_TOKEN = process.env.NEXT_PUBLIC_BITSCOPE_LOCAL_ACCESS_TOKEN ?? "";
+
+const MUTATION_PATHS = new Set([
+  "/demo/run",
+  "/multisig/create",
+  "/multisig/fund",
+  "/multisig/spend-psbt",
+  "/psbt/create",
+  "/psbt/wallet-process",
+  "/regtest/mine",
+  "/regtest/faucet",
+  "/scripts/create-op-return",
+  "/timelocks/transaction",
+  "/transactions/create-regtest",
+  "/transactions/send-regtest",
+  "/transactions/rbf-bump",
+  "/transactions/cpfp-child",
+  "/wallets/create",
+  "/wallets/load"
+]);
 
 export function liveNodeEventsUrl(intervalSeconds = 3): string {
   const url = new URL(`${API_BASE_URL}/live/node`);
@@ -1578,9 +1598,13 @@ export async function fetchLearningRpcMethods(): Promise<LearningRpcMethodsRespo
 }
 
 async function postJson<T>(path: string, body: Record<string, unknown>, fallback: string): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (isMutationPath(path) && LOCAL_ACCESS_TOKEN) {
+    headers["X-BitScope-Token"] = LOCAL_ACCESS_TOKEN;
+  }
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(body),
     cache: "no-store"
   });
@@ -1590,6 +1614,10 @@ async function postJson<T>(path: string, body: Record<string, unknown>, fallback
   }
 
   return response.json() as Promise<T>;
+}
+
+function isMutationPath(path: string): boolean {
+  return MUTATION_PATHS.has(path) || /^\/wallets\/[^/]+\/address$/.test(path);
 }
 
 async function extractApiError(response: Response, fallback: string): Promise<string> {

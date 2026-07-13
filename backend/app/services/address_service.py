@@ -1,5 +1,6 @@
 from app.errors import BitScopeError
 from app.rpc.client import BitcoinRpcClient
+from app.rpc.capabilities import WalletReadRpcClient
 from app.rpc.errors import RpcError
 from app.rpc.types import JsonValue
 
@@ -19,7 +20,7 @@ WALLET_OPTIONAL_ERRORS = {
 
 class AddressService:
     def __init__(self, rpc_client: BitcoinRpcClient) -> None:
-        self.rpc_client = rpc_client
+        self.rpc_client = WalletReadRpcClient(rpc_client)
 
     def get_address(self, address: str) -> dict[str, object]:
         normalized_address = address.strip()

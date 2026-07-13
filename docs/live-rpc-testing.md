@@ -46,6 +46,8 @@ $env:BITCOIN_RPC_HOST = "127.0.0.1"
 pytest tests/live_node
 ```
 
+CI runs the same directory in a dedicated blocking job against the pinned Bitcoin Core version documented in [supported-bitcoin-core.md](supported-bitcoin-core.md). The ordinary backend unit-test job still runs without a node and skips this directory.
+
 ## Isolated Lifecycle Fixture
 
 The fixture in `backend/tests/live_node/conftest.py` enforces this lifecycle:
@@ -83,6 +85,6 @@ def ensure_mature_balance(client, wallet_name, minimum_btc):
 - [x] `backend/app/services/script_service.py`: preflight wallet funding before OP_RETURN transaction builders.
 - [x] `backend/app/services/psbt_service.py`: preflight recipient address and wallet balance before funded PSBT creation.
 - [x] `backend/app/services/spend_preflight.py`: centralize address and mature-balance validation for spend paths.
-- [ ] `backend/tests/`: tag all live RPC tests as opt-in and keep ordinary CI mock-only.
+- [x] `backend/tests/live_node/`: keep live RPC tests explicitly opt-in outside the dedicated pinned-Core CI job.
 - [x] Frontend: display safe error details such as `trusted_btc`, `immature_btc`, and `minimum_coinbase_confirmations` when present.
 - [ ] Documentation: keep every educational workflow paired with the exact `bitcoin-cli` command and RPC method list.

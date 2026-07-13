@@ -10,7 +10,9 @@ class FakeRpcClient:
         self.calls: list[tuple[str, list[object]]] = []
         self.settings = type("Settings", (), {"bitcoin_network": network})()
 
-    def call(self, method: str, params: list[object], wallet_name: str | None = None) -> object:
+    def call(self, method: str, params: list[object] | None = None, wallet_name: str | None = None) -> object:
+        if method == "getblockchaininfo":
+            return {"chain": {"mainnet": "main", "testnet": "test"}.get(self.settings.bitcoin_network, self.settings.bitcoin_network)}
         self.calls.append((method, params))
         if method == "validateaddress":
             return {"isvalid": True}
@@ -226,7 +228,7 @@ def test_create_op_return_transaction_blocks_non_regtest() -> None:
 
 def test_create_op_return_transaction_reports_insufficient_mature_balance_before_funding() -> None:
     class ImmatureRpc(FakeRpcClient):
-        def call(self, method: str, params: list[object], wallet_name: str | None = None) -> object:
+        def call(self, method: str, params: list[object] | None = None, wallet_name: str | None = None) -> object:
             self.calls.append((method, params))
             if method == "getbalances":
                 return {"mine": {"trusted": 0.0, "immature": 50.0}}

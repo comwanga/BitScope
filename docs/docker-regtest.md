@@ -16,6 +16,8 @@ This compose stack runs BitScope with a private Bitcoin Core regtest node.
 
 The wrapper loads `backend/.env.docker` when present and automatically chooses `docker compose` or legacy `docker-compose`.
 
+The packaged backend uses `APP_ENVIRONMENT=production`, which disables `/docs`, `/redoc`, and `/openapi.json`. Compose exposes ports for a local learning environment; do not publish them to an untrusted network. Set a unique `BITSCOPE_LOCAL_ACCESS_TOKEN`, and keep trusted hosts and CORS origins narrowly scoped when customizing the stack.
+
 Open:
 
 ```text

@@ -10,13 +10,22 @@ def test_cors_origins_parse_from_comma_separated_string() -> None:
     ]
 
 
+def test_trusted_hosts_parse_from_comma_separated_string() -> None:
+    settings = Settings(backend_trusted_hosts="localhost,127.0.0.1,backend")
+
+    assert settings.backend_trusted_hosts == ["localhost", "127.0.0.1", "backend"]
+
+
 def test_public_config_does_not_expose_rpc_password() -> None:
-    settings = Settings(bitcoin_rpc_password="super-secret")
+    settings = Settings(bitcoin_rpc_password="super-secret", bitscope_local_access_token="local-secret")
 
     public_config = settings.public_dict()
 
     assert "bitcoin_rpc_password" not in public_config
+    assert "bitscope_local_access_token" not in public_config
     assert "super-secret" not in str(public_config)
+    assert "local-secret" not in str(public_config)
+    assert public_config["local_access_token_configured"] is True
     assert public_config["app_version"] == "0.1.0"
 
 

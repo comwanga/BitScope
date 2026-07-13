@@ -7,6 +7,7 @@ from app.services.wallet_service import WalletService
 class FakeSettings:
     def __init__(self) -> None:
         self.bitcoin_rpc_wallet = ""
+        self.bitcoin_network = "regtest"
 
 
 class FakeRpcClient:
@@ -16,6 +17,8 @@ class FakeRpcClient:
         self.calls: list[tuple[str, list[object] | None, str | None]] = []
 
     def call(self, method: str, params: list[object] | None = None, wallet_name: str | None = None) -> object:
+        if method == "getblockchaininfo":
+            return {"chain": "regtest"}
         self.calls.append((method, params, wallet_name))
         keyed = self.responses.get((method, wallet_name)) if all(isinstance(key, tuple) for key in self.responses) else None
         if keyed is not None:

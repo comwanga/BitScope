@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.models.psbt import (
     CreatePsbtRequest,
@@ -11,12 +11,13 @@ from app.models.psbt import (
     PsbtProcessResponse,
 )
 from app.rpc.client import BitcoinRpcClient
+from app.security import require_mutation_access
 from app.services.psbt_service import PsbtService
 
 router = APIRouter(prefix="/psbt", tags=["psbt"])
 
 
-@router.post("/create", response_model=PsbtCreateResponse)
+@router.post("/create", response_model=PsbtCreateResponse, dependencies=[Depends(require_mutation_access)])
 def create_psbt(request: CreatePsbtRequest) -> PsbtCreateResponse:
     with BitcoinRpcClient() as rpc_client:
         result = PsbtService(rpc_client).create(request.wallet_name, request.recipient_address, request.amount_btc)
@@ -32,7 +33,7 @@ def decode_psbt(request: DecodePsbtRequest) -> PsbtDecodeResponse:
     return PsbtDecodeResponse.model_validate(result)
 
 
-@router.post("/wallet-process", response_model=PsbtProcessResponse)
+@router.post("/wallet-process", response_model=PsbtProcessResponse, dependencies=[Depends(require_mutation_access)])
 def process_psbt(request: ProcessPsbtRequest) -> PsbtProcessResponse:
     with BitcoinRpcClient() as rpc_client:
         result = PsbtService(rpc_client).process(request.wallet_name, request.psbt, request.sign)

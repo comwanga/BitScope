@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.models.transaction import (
     RegtestTransactionBuildRequest,
@@ -13,12 +13,13 @@ from app.models.transaction import (
     TransactionResponse,
 )
 from app.rpc.client import BitcoinRpcClient
+from app.security import require_mutation_access
 from app.services.transaction_service import TransactionService
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
 
-@router.post("/create-regtest", response_model=RegtestTransactionBuildResponse)
+@router.post("/create-regtest", response_model=RegtestTransactionBuildResponse, dependencies=[Depends(require_mutation_access)])
 def create_regtest_transaction(request: RegtestTransactionBuildRequest) -> RegtestTransactionBuildResponse:
     with BitcoinRpcClient() as rpc_client:
         transaction = TransactionService(rpc_client).build_regtest_transaction(
@@ -30,7 +31,7 @@ def create_regtest_transaction(request: RegtestTransactionBuildRequest) -> Regte
     return RegtestTransactionBuildResponse.model_validate(transaction)
 
 
-@router.post("/send-regtest", response_model=RegtestTransactionSendResponse)
+@router.post("/send-regtest", response_model=RegtestTransactionSendResponse, dependencies=[Depends(require_mutation_access)])
 def send_regtest_transaction(request: RegtestTransactionSendRequest) -> RegtestTransactionSendResponse:
     with BitcoinRpcClient() as rpc_client:
         transaction = TransactionService(rpc_client).send_regtest_transaction(
@@ -43,7 +44,7 @@ def send_regtest_transaction(request: RegtestTransactionSendRequest) -> RegtestT
     return RegtestTransactionSendResponse.model_validate(transaction)
 
 
-@router.post("/rbf-bump", response_model=RbfBumpResponse)
+@router.post("/rbf-bump", response_model=RbfBumpResponse, dependencies=[Depends(require_mutation_access)])
 def bump_rbf_transaction(request: RbfBumpRequest) -> RbfBumpResponse:
     with BitcoinRpcClient() as rpc_client:
         result = TransactionService(rpc_client).bump_rbf_transaction(
@@ -56,7 +57,7 @@ def bump_rbf_transaction(request: RbfBumpRequest) -> RbfBumpResponse:
     return RbfBumpResponse.model_validate(result)
 
 
-@router.post("/cpfp-child", response_model=CpfpChildResponse)
+@router.post("/cpfp-child", response_model=CpfpChildResponse, dependencies=[Depends(require_mutation_access)])
 def create_cpfp_child(request: CpfpChildRequest) -> CpfpChildResponse:
     with BitcoinRpcClient() as rpc_client:
         result = TransactionService(rpc_client).create_cpfp_child(

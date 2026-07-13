@@ -1,15 +1,17 @@
 from app.errors import BitScopeError
 from app.rpc.client import BitcoinRpcClient
+from app.rpc.capabilities import RegtestMutationRpcClient
 from app.rpc.types import JsonValue
+from app.services.network_safety import NetworkSafetyGuard
 from app.services.spend_preflight import SpendPreflight
 
 
 class MultisigService:
     def __init__(self, rpc_client: BitcoinRpcClient) -> None:
-        self.rpc_client = rpc_client
+        self.rpc_client = RegtestMutationRpcClient(rpc_client)
 
     def create(self, wallet_name: str, required_signatures: int, signer_count: int, address_type: str) -> dict[str, object]:
-        self._require_regtest()
+        NetworkSafetyGuard(self.rpc_client).require_regtest()
         clean_wallet = self._clean(wallet_name, "wallet name")
         clean_type = self._address_type(address_type)
         if required_signatures < 1 or signer_count < 1 or required_signatures > signer_count:
@@ -77,7 +79,7 @@ class MultisigService:
         }
 
     def fund(self, wallet_name: str, multisig_address: str, amount_btc: float, mine_confirmation: bool) -> dict[str, object]:
-        self._require_regtest()
+        NetworkSafetyGuard(self.rpc_client).require_regtest()
         clean_wallet = self._clean(wallet_name, "wallet name")
         clean_address = self._clean(multisig_address, "multisig address")
         amount = self._amount(amount_btc)
@@ -142,7 +144,7 @@ class MultisigService:
         }
 
     def spend_psbt(self, wallet_name: str, multisig_address: str, destination_address: str, amount_btc: float, extract: bool) -> dict[str, object]:
-        self._require_regtest()
+        NetworkSafetyGuard(self.rpc_client).require_regtest()
         clean_wallet = self._clean(wallet_name, "wallet name")
         clean_multisig = self._clean(multisig_address, "multisig address")
         clean_destination = self._clean(destination_address, "destination address")
@@ -230,15 +232,6 @@ class MultisigService:
                 "finalizepsbt": finalized,
             },
         }
-
-    def _require_regtest(self) -> None:
-        if self.rpc_client.settings.bitcoin_network != "regtest":
-            raise BitScopeError(
-                code="REGTEST_ONLY",
-                message="This multisig lab is only available when BITCOIN_NETWORK is set to regtest.",
-                status_code=400,
-                details={"network": self.rpc_client.settings.bitcoin_network},
-            )
 
     @staticmethod
     def _clean(value: str, label: str) -> str:

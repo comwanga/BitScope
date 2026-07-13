@@ -1,11 +1,12 @@
 from app.errors import BitScopeError
 from app.rpc.client import BitcoinRpcClient
+from app.rpc.capabilities import ReadOnlyRpcClient
 from app.rpc.types import JsonValue
 
 
 class TaprootService:
     def __init__(self, rpc_client: BitcoinRpcClient) -> None:
-        self.rpc_client = rpc_client
+        self.rpc_client = ReadOnlyRpcClient(rpc_client)
 
     def inspect(self, address: str | None = None, script_hex: str | None = None) -> dict[str, object]:
         clean_address = self._optional_clean(address)

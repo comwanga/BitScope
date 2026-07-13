@@ -15,23 +15,23 @@ def live_rpc_client() -> Generator[BitcoinRpcClient, None, None]:
 
     settings = Settings()
     if settings.bitcoin_network != "regtest":
-        pytest.skip("Live RPC tests require BITCOIN_NETWORK=regtest.")
+        pytest.fail("Live RPC tests were enabled but BITCOIN_NETWORK is not regtest.")
 
     with BitcoinRpcClient(settings=settings) as client:
         chain = client.call("getblockchaininfo")
         if not isinstance(chain, dict) or chain.get("chain") != "regtest":
-            pytest.skip("Connected Bitcoin Core node is not on regtest.")
+            pytest.fail("Live RPC tests were enabled but the connected Bitcoin Core node is not on regtest.")
         yield client
 
 
 @pytest.fixture()
 def isolated_wallet(live_rpc_client: BitcoinRpcClient) -> Generator[str, None, None]:
     wallet_name = f"bitscope-test-{uuid.uuid4().hex[:12]}"
-    live_rpc_client.call("createwallet", [wallet_name, False, False, "", False, True, True])
+    live_rpc_client.call("createwallet", [wallet_name, False, False, "", False, False, True])
     try:
         yield wallet_name
     finally:
-        live_rpc_client.call("unloadwallet", [wallet_name])
+        live_rpc_client.call("unloadwallet", [], wallet_name=wallet_name)
 
 
 @pytest.fixture()

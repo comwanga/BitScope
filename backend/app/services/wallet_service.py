@@ -1,11 +1,13 @@
 from app.errors import BitScopeError
 from app.rpc.client import BitcoinRpcClient
+from app.rpc.capabilities import RegtestMutationRpcClient
 from app.rpc.types import JsonValue
+from app.services.network_safety import NetworkSafetyGuard
 
 
 class WalletService:
     def __init__(self, rpc_client: BitcoinRpcClient) -> None:
-        self.rpc_client = rpc_client
+        self.rpc_client = RegtestMutationRpcClient(rpc_client)
 
     def summary(self) -> dict[str, object]:
         loaded_wallets = self._as_str_list(self.rpc_client.call("listwallets"))
@@ -31,6 +33,7 @@ class WalletService:
         }
 
     def create_wallet(self, wallet_name: str) -> dict[str, object]:
+        NetworkSafetyGuard(self.rpc_client).require_regtest()
         clean_name = self._clean_wallet_name(wallet_name)
         result = self._as_dict(self.rpc_client.call("createwallet", [clean_name]))
         created_name = self._optional_str(result.get("name")) or clean_name
@@ -47,6 +50,7 @@ class WalletService:
         }
 
     def load_wallet(self, wallet_name: str) -> dict[str, object]:
+        NetworkSafetyGuard(self.rpc_client).require_regtest()
         clean_name = self._clean_wallet_name(wallet_name)
         result = self._as_dict(self.rpc_client.call("loadwallet", [clean_name]))
         loaded_name = self._optional_str(result.get("name")) or clean_name
@@ -87,6 +91,7 @@ class WalletService:
         }
 
     def new_address(self, wallet_name: str, label: str = "", address_type: str = "bech32") -> dict[str, object]:
+        NetworkSafetyGuard(self.rpc_client).require_regtest()
         clean_name = self._clean_wallet_name(wallet_name)
         clean_type = address_type.strip() or "bech32"
         if clean_type not in {"legacy", "p2sh-segwit", "bech32", "bech32m"}:

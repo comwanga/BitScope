@@ -185,3 +185,20 @@ def test_required_read_only_rpc_helpers_call_expected_methods() -> None:
         "getblockcount",
         "getbestblockhash",
     ]
+
+
+def test_raw_rpc_transport_rejects_globally_forbidden_method_before_http() -> None:
+    contacted = False
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal contacted
+        contacted = True
+        return httpx.Response(200, json={"result": None, "error": None, "id": 1})
+
+    client = make_client(httpx.MockTransport(handler))
+
+    with pytest.raises(RpcError) as exc_info:
+        client.call("stop")
+
+    assert exc_info.value.code == "RPC_METHOD_FORBIDDEN"
+    assert contacted is False

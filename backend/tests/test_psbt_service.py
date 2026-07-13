@@ -15,6 +15,8 @@ class FakeRpcClient:
         self.calls: list[tuple[str, list[object] | None, str | None]] = []
 
     def call(self, method: str, params: list[object] | None = None, wallet_name: str | None = None) -> object:
+        if method == "getblockchaininfo":
+            return {"chain": {"mainnet": "main", "testnet": "test"}.get(self.settings.bitcoin_network, self.settings.bitcoin_network)}
         self.calls.append((method, params, wallet_name))
         if method == "validateaddress":
             return {"isvalid": True}
@@ -70,7 +72,7 @@ def test_process_psbt_blocks_mainnet_signing() -> None:
     with pytest.raises(BitScopeError) as exc_info:
         PsbtService(FakeRpcClient(network="mainnet")).process("demo", "psbt", True)  # type: ignore[arg-type]
 
-    assert exc_info.value.code == "MAINNET_SIGNING_DISABLED"
+    assert exc_info.value.code == "REGTEST_ONLY"
 
 
 def test_process_psbt_allows_mainnet_metadata_without_signing() -> None:

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
 from app.models.wallet import (
     NewAddressRequest,
@@ -11,6 +11,7 @@ from app.models.wallet import (
     WalletUtxosResponse,
 )
 from app.rpc.client import BitcoinRpcClient
+from app.security import require_mutation_access
 from app.services.wallet_service import WalletService
 
 router = APIRouter(prefix="/wallets", tags=["wallets"])
@@ -24,7 +25,7 @@ def get_wallets() -> WalletSummaryResponse:
     return WalletSummaryResponse.model_validate(result)
 
 
-@router.post("/create", response_model=WalletActionResponse)
+@router.post("/create", response_model=WalletActionResponse, dependencies=[Depends(require_mutation_access)])
 def create_wallet(request: WalletActionRequest) -> WalletActionResponse:
     with BitcoinRpcClient() as rpc_client:
         result = WalletService(rpc_client).create_wallet(request.wallet_name)
@@ -32,7 +33,7 @@ def create_wallet(request: WalletActionRequest) -> WalletActionResponse:
     return WalletActionResponse.model_validate(result)
 
 
-@router.post("/load", response_model=WalletActionResponse)
+@router.post("/load", response_model=WalletActionResponse, dependencies=[Depends(require_mutation_access)])
 def load_wallet(request: WalletActionRequest) -> WalletActionResponse:
     with BitcoinRpcClient() as rpc_client:
         result = WalletService(rpc_client).load_wallet(request.wallet_name)
@@ -48,7 +49,7 @@ def get_wallet_balance(wallet_name: str) -> WalletBalanceResponse:
     return WalletBalanceResponse.model_validate(result)
 
 
-@router.post("/{wallet_name}/address", response_model=WalletAddressResponse)
+@router.post("/{wallet_name}/address", response_model=WalletAddressResponse, dependencies=[Depends(require_mutation_access)])
 def get_new_address(wallet_name: str, request: NewAddressRequest) -> WalletAddressResponse:
     with BitcoinRpcClient() as rpc_client:
         result = WalletService(rpc_client).new_address(wallet_name, request.label, request.address_type)

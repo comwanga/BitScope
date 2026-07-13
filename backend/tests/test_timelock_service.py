@@ -15,6 +15,8 @@ class FakeRpcClient:
         self.calls: list[tuple[str, list[object] | None, str | None]] = []
 
     def call(self, method: str, params: list[object] | None = None, wallet_name: str | None = None) -> object:
+        if method == "getblockchaininfo":
+            return {"chain": {"mainnet": "main", "testnet": "test"}.get(self.settings.bitcoin_network, self.settings.bitcoin_network)}
         self.calls.append((method, params, wallet_name))
         if method == "validateaddress":
             return {"isvalid": True}
@@ -89,7 +91,10 @@ def test_create_locktime_transaction_rejects_invalid_destination_address() -> No
         TimelockService(rpc).create_locktime_transaction("demo", "old-address", 0.5, 500, 1)  # type: ignore[arg-type]
 
     assert exc_info.value.code == "INVALID_TIMELOCK_ADDRESS"
-    assert rpc.calls == [("validateaddress", ["old-address"], None)]
+    assert rpc.calls == [
+        ("getblockchaininfo", None, None),
+        ("validateaddress", ["old-address"], None),
+    ]
 
 
 def test_create_locktime_transaction_skips_immature_coinbase_utxos() -> None:

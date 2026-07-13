@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.models.script import (
     DecodeScriptRequest,
@@ -11,6 +11,7 @@ from app.models.script import (
     ScriptTestResponse,
 )
 from app.rpc.client import BitcoinRpcClient
+from app.security import require_mutation_access
 from app.services.script_service import ScriptService
 
 router = APIRouter(prefix="/scripts", tags=["scripts"])
@@ -46,7 +47,7 @@ def test_script_spend(request: ScriptTestRequest) -> ScriptTestResponse:
     return ScriptTestResponse.model_validate(result)
 
 
-@router.post("/create-op-return", response_model=OpReturnTransactionResponse)
+@router.post("/create-op-return", response_model=OpReturnTransactionResponse, dependencies=[Depends(require_mutation_access)])
 def create_op_return_transaction(request: OpReturnTransactionRequest) -> OpReturnTransactionResponse:
     with BitcoinRpcClient() as rpc_client:
         result = ScriptService(rpc_client).create_op_return(

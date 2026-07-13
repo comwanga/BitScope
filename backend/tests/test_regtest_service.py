@@ -15,6 +15,8 @@ class FakeRpcClient:
         self.calls: list[tuple[str, list[object] | None, str | None]] = []
 
     def call(self, method: str, params: list[object] | None = None, wallet_name: str | None = None) -> object:
+        if method == "getblockchaininfo":
+            return {"chain": {"mainnet": "main", "testnet": "test"}.get(self.settings.bitcoin_network, self.settings.bitcoin_network)}
         self.calls.append((method, params, wallet_name))
         if method == "getnewaddress":
             return "bcrt1qmine"
@@ -101,7 +103,27 @@ def test_faucet_rejects_stale_or_invalid_address() -> None:
         RegtestService(rpc).faucet("demo", "stale-address", 1.0)  # type: ignore[arg-type]
 
     assert exc_info.value.code == "INVALID_REGTEST_ADDRESS"
-    assert rpc.calls == [("validateaddress", ["stale-address"], None)]
+    assert rpc.calls == [
+        ("getblockchaininfo", None, None),
+        ("validateaddress", ["stale-address"], None),
+    ]
+
+
+def test_runtime_mainnet_mismatch_is_rejected_before_mutation() -> None:
+    class MainnetRuntimeRpc(FakeRpcClient):
+        def call(self, method: str, params: list[object] | None = None, wallet_name: str | None = None) -> object:
+            self.calls.append((method, params, wallet_name))
+            if method == "getblockchaininfo":
+                return {"chain": "main"}
+            return super().call(method, params, wallet_name)
+
+    rpc = MainnetRuntimeRpc(network="regtest")
+
+    with pytest.raises(BitScopeError) as exc_info:
+        RegtestService(rpc).mine(1, wallet_name="demo")  # type: ignore[arg-type]
+
+    assert exc_info.value.code == "BITCOIN_NETWORK_MISMATCH"
+    assert rpc.calls == [("getblockchaininfo", None, None)]
 
 
 def test_faucet_reports_immature_coinbase_balance_before_send() -> None:

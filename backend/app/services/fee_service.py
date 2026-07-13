@@ -1,4 +1,5 @@
 from app.rpc.client import BitcoinRpcClient
+from app.rpc.capabilities import ReadOnlyRpcClient
 from app.rpc.types import JsonValue
 
 
@@ -7,7 +8,7 @@ FEE_TARGETS = [1, 3, 6, 12]
 
 class FeeService:
     def __init__(self, rpc_client: BitcoinRpcClient) -> None:
-        self.rpc_client = rpc_client
+        self.rpc_client = ReadOnlyRpcClient(rpc_client)
 
     def estimates(self, targets: list[int] | None = None) -> dict[str, object]:
         selected_targets = targets or FEE_TARGETS

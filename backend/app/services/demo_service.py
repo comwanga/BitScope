@@ -2,8 +2,10 @@ from datetime import UTC, datetime
 
 from app.errors import BitScopeError
 from app.rpc.client import BitcoinRpcClient
+from app.rpc.capabilities import RegtestMutationRpcClient
 from app.rpc.errors import RpcError
 from app.rpc.types import JsonValue
+from app.services.network_safety import NetworkSafetyGuard
 
 
 SCRIPT_SAMPLE_HEX = "76a91489abcdefabbaabbaabbaabbaabbaabbaabbaabba88ac"
@@ -11,7 +13,7 @@ SCRIPT_SAMPLE_HEX = "76a91489abcdefabbaabbaabbaabbaabbaabbaabbaabba88ac"
 
 class DemoService:
     def __init__(self, rpc_client: BitcoinRpcClient) -> None:
-        self.rpc_client = rpc_client
+        self.rpc_client = RegtestMutationRpcClient(rpc_client)
 
     def run(
         self,
@@ -21,7 +23,7 @@ class DemoService:
         send_amount_btc: float,
         include_script_sample: bool,
     ) -> dict[str, object]:
-        self._require_regtest()
+        NetworkSafetyGuard(self.rpc_client).require_regtest()
         session_id = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
         clean_wallet = self._wallet_name(wallet_name)
         active_wallet = f"{clean_wallet}-{session_id}" if fresh_wallet else clean_wallet
@@ -187,15 +189,6 @@ class DemoService:
                 details={"rpc_method": method},
             )
         return value
-
-    def _require_regtest(self) -> None:
-        if self.rpc_client.settings.bitcoin_network != "regtest":
-            raise BitScopeError(
-                code="REGTEST_ONLY",
-                message="Demo Mode is only available when BITCOIN_NETWORK is set to regtest.",
-                status_code=400,
-                details={"network": self.rpc_client.settings.bitcoin_network},
-            )
 
     @staticmethod
     def _wallet_name(value: str) -> str:

@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 
 class AddressIndexScanRequest(BaseModel):
-    address: str = Field(min_length=1)
+    address: str = Field(min_length=1, max_length=128)
     start_height: int = Field(ge=0)
     end_height: int = Field(ge=0)
 

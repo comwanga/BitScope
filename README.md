@@ -113,13 +113,20 @@ Regtest is the recommended development and demo network.
    uvicorn app.main:app --reload
    ```
 
+   Set `BITSCOPE_LOCAL_ACCESS_TOKEN` in `backend/.env` to a unique random value. BitScope requires this token before any wallet, mining, signing, funding, or broadcast action.
+
+   Local development enables `/docs`; set `APP_ENVIRONMENT=production` to disable `/docs`, `/redoc`, and `/openapi.json`. Keep `BACKEND_TRUSTED_HOSTS` and `BACKEND_CORS_ORIGINS` limited to the hosts and browser origins you actually use.
+
 4. Run the frontend.
 
    ```powershell
    cd frontend
    npm install
+   Copy-Item .env.example .env.local
    npm run dev
    ```
+
+   Set `NEXT_PUBLIC_BITSCOPE_LOCAL_ACCESS_TOKEN` in `frontend/.env.local` to the same value. This browser-visible credential is intentionally local-only; do not reuse a password or expose the app publicly.
 
 5. Open `http://localhost:3000`.
 
@@ -177,7 +184,9 @@ CI runs backend tests, frontend build, and Docker Compose config validation thro
 - [Regtest guide](docs/regtest-guide.md): mining, coinbase maturity, and demo flow.
 - [Demo script](docs/demo-script.md): reviewer-facing walkthrough.
 - [Live RPC testing](docs/live-rpc-testing.md): isolated live-node pytest lifecycle and regtest failure mitigations.
+- [Supported Bitcoin Core](docs/supported-bitcoin-core.md): pinned CI version, support policy, and deterministic regtest coverage.
 - [Project audit roadmap](docs/project-audit-roadmap.md): brutal audit, Demo Mode plan, release automation, analytics, and performance strategy.
+- [Audit implementation plan](docs/audit-implementation-plan.md): prioritized security, deterministic lab, product, quality, and alpha-release work packages.
 - [Limitations](docs/limitations.md): no hosted APIs, address-history limits, mainnet safety.
 - [Curriculum gap analysis](docs/curriculum-gap-analysis.md): coverage against the study goals.
 

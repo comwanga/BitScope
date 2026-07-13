@@ -4,26 +4,26 @@ from pydantic import BaseModel, Field
 
 
 class DecodeScriptRequest(BaseModel):
-    script_hex: str = Field(min_length=1)
+    script_hex: str = Field(min_length=1, max_length=1_000_000)
 
 
 class ScriptTemplateRequest(BaseModel):
-    template: str
-    pubkey_hex: str | None = None
-    fallback_pubkey_hex: str | None = None
-    pubkey_hash_hex: str | None = None
-    hash_hex: str | None = None
+    template: str = Field(min_length=1, max_length=64)
+    pubkey_hex: str | None = Field(default=None, max_length=130)
+    fallback_pubkey_hex: str | None = Field(default=None, max_length=130)
+    pubkey_hash_hex: str | None = Field(default=None, max_length=40)
+    hash_hex: str | None = Field(default=None, max_length=64)
 
 
 class ScriptTestRequest(BaseModel):
-    transaction_hex: str = Field(min_length=1)
+    transaction_hex: str = Field(min_length=1, max_length=1_000_000)
 
 
 class OpReturnTransactionRequest(BaseModel):
-    wallet_name: str = Field(min_length=1)
-    data: str = Field(min_length=1)
-    data_format: str = "text"
-    destination_address: str | None = None
+    wallet_name: str = Field(min_length=1, max_length=128)
+    data: str = Field(min_length=1, max_length=320)
+    data_format: str = Field(default="text", max_length=16)
+    destination_address: str | None = Field(default=None, max_length=128)
     amount_btc: float | None = None
     broadcast: bool = False
     mine_confirmation: bool = False

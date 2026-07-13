@@ -49,7 +49,7 @@ class TransactionResponse(BaseModel):
 
 class RegtestTransactionBuildRequest(BaseModel):
     wallet_name: str = Field(min_length=1, max_length=128)
-    address: str = Field(min_length=1)
+    address: str = Field(min_length=1, max_length=128)
     amount_btc: float = Field(gt=0)
 
 
@@ -130,7 +130,7 @@ class CpfpChildRequest(BaseModel):
     wallet_name: str = Field(min_length=1, max_length=128)
     parent_txid: str = Field(min_length=64, max_length=64)
     parent_vout: int = Field(ge=0)
-    destination_address: str = Field(min_length=1)
+    destination_address: str = Field(min_length=1, max_length=128)
     amount_btc: float = Field(gt=0)
     fee_rate_sat_vb: float | None = Field(default=None, gt=0)
     broadcast: bool = False

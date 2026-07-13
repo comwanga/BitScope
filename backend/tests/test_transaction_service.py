@@ -90,6 +90,8 @@ class FakeBuilderRpcClient:
         self.calls: list[tuple[str, list[object] | None, str | None]] = []
 
     def call(self, method: str, params: list[object] | None = None, wallet_name: str | None = None) -> object:
+        if method == "getblockchaininfo":
+            return {"chain": {"mainnet": "main", "testnet": "test"}.get(self.settings.bitcoin_network, self.settings.bitcoin_network)}
         self.calls.append((method, params, wallet_name))
         if method == "validateaddress":
             return {"isvalid": True}

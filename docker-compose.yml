@@ -39,6 +39,7 @@ services:
       context: ./backend
     environment:
       APP_VERSION: "0.1.0"
+      APP_ENVIRONMENT: production
       BITCOIN_NETWORK: regtest
       BITCOIN_RPC_HOST: bitcoind
       BITCOIN_RPC_PORT: "18443"
@@ -48,6 +49,9 @@ services:
       BITCOIN_ZMQ_RAWBLOCK: ${BITCOIN_ZMQ_RAWBLOCK:-tcp://bitcoind:28332}
       BITCOIN_ZMQ_RAWTX: ${BITCOIN_ZMQ_RAWTX:-tcp://bitcoind:28333}
       BACKEND_CORS_ORIGINS: http://localhost:3000,http://frontend:3000
+      BACKEND_TRUSTED_HOSTS: localhost,127.0.0.1,backend,frontend
+      MAX_REQUEST_BODY_BYTES: "1048576"
+      BITSCOPE_LOCAL_ACCESS_TOKEN: ${BITSCOPE_LOCAL_ACCESS_TOKEN:-replace-with-a-random-local-token}
     ports:
       - "8000:8000"
     depends_on:
@@ -59,6 +63,7 @@ services:
       context: ./frontend
       args:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api}
+        NEXT_PUBLIC_BITSCOPE_LOCAL_ACCESS_TOKEN: ${BITSCOPE_LOCAL_ACCESS_TOKEN:-replace-with-a-random-local-token}
     environment:
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api}
       PORT: "3000"

@@ -1,13 +1,14 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.models.demo import DemoRunRequest, DemoRunResponse
 from app.rpc.client import BitcoinRpcClient
+from app.security import require_mutation_access
 from app.services.demo_service import DemoService
 
 router = APIRouter(prefix="/demo", tags=["demo"])
 
 
-@router.post("/run", response_model=DemoRunResponse)
+@router.post("/run", response_model=DemoRunResponse, dependencies=[Depends(require_mutation_access)])
 def run_demo(request: DemoRunRequest) -> DemoRunResponse:
     with BitcoinRpcClient() as rpc_client:
         result = DemoService(rpc_client).run(

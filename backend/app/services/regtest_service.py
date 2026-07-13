@@ -1,15 +1,17 @@
 from app.errors import BitScopeError
 from app.rpc.client import BitcoinRpcClient
+from app.rpc.capabilities import RegtestMutationRpcClient
 from app.rpc.types import JsonValue
+from app.services.network_safety import NetworkSafetyGuard
 from app.services.spend_preflight import SpendPreflight
 
 
 class RegtestService:
     def __init__(self, rpc_client: BitcoinRpcClient) -> None:
-        self.rpc_client = rpc_client
+        self.rpc_client = RegtestMutationRpcClient(rpc_client)
 
     def mine(self, blocks: int, wallet_name: str | None = None, address: str | None = None) -> dict[str, object]:
-        self._require_regtest()
+        NetworkSafetyGuard(self.rpc_client).require_regtest()
         clean_wallet = self._optional_clean(wallet_name)
         clean_address = self._optional_clean(address)
 
@@ -54,7 +56,7 @@ class RegtestService:
         }
 
     def faucet(self, wallet_name: str, address: str, amount_btc: float, mine_confirmation: bool = True) -> dict[str, object]:
-        self._require_regtest()
+        NetworkSafetyGuard(self.rpc_client).require_regtest()
         clean_wallet = self._clean(wallet_name, "wallet name")
         clean_address = self._clean(address, "destination address")
         amount = self._amount(amount_btc)
@@ -114,15 +116,6 @@ class RegtestService:
             "explanation": "The regtest faucet sends coins from a local wallet and can mine one block to confirm the transaction.",
             "raw": raw,
         }
-
-    def _require_regtest(self) -> None:
-        if self.rpc_client.settings.bitcoin_network != "regtest":
-            raise BitScopeError(
-                code="REGTEST_ONLY",
-                message="This action is only available when BITCOIN_NETWORK is set to regtest.",
-                status_code=400,
-                details={"network": self.rpc_client.settings.bitcoin_network},
-            )
 
     @staticmethod
     def _optional_clean(value: str | None) -> str | None:

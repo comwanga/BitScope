@@ -9,7 +9,9 @@ BitScope is a local-first Bitcoin Core learning laboratory. The public-facing ma
 3. Every major workflow maps UI output back to `bitcoin-cli`, RPC methods, parameters, raw JSON, and plain-English explanation.
 4. Regtest is the default environment for mining, wallet spending, signing, broadcasting, and demos.
 5. Mainnet workflows are read-only unless a feature is explicitly guarded.
-6. Hosted blockchain APIs and remote indexers are intentionally out of scope.
+6. Service-layer RPC access follows explicit read-only, wallet-read, and regtest-mutation capabilities.
+7. Secret import/export, wallet unlocking, seed replacement, backup, encryption, private-key signing, and node shutdown RPCs are forbidden at the transport boundary.
+8. Hosted blockchain APIs and remote indexers are intentionally out of scope.
 
 ## Repository Structure
 

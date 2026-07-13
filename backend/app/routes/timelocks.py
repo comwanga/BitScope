@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.models.timelock import (
     LocktimeTransactionRequest,
@@ -7,12 +7,13 @@ from app.models.timelock import (
     TimelockScriptResponse,
 )
 from app.rpc.client import BitcoinRpcClient
+from app.security import require_mutation_access
 from app.services.timelock_service import TimelockService
 
 router = APIRouter(prefix="/timelocks", tags=["timelocks"])
 
 
-@router.post("/transaction", response_model=LocktimeTransactionResponse)
+@router.post("/transaction", response_model=LocktimeTransactionResponse, dependencies=[Depends(require_mutation_access)])
 def create_locktime_transaction(request: LocktimeTransactionRequest) -> LocktimeTransactionResponse:
     with BitcoinRpcClient() as rpc_client:
         result = TimelockService(rpc_client).create_locktime_transaction(

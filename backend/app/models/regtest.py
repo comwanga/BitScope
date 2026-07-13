@@ -5,13 +5,13 @@ from pydantic import BaseModel, Field
 
 class MineRequest(BaseModel):
     blocks: int = Field(default=1, ge=1, le=500)
-    wallet_name: str | None = None
-    address: str | None = None
+    wallet_name: str | None = Field(default=None, max_length=128)
+    address: str | None = Field(default=None, max_length=128)
 
 
 class FaucetRequest(BaseModel):
     wallet_name: str = Field(min_length=1, max_length=128)
-    address: str = Field(min_length=1)
+    address: str = Field(min_length=1, max_length=128)
     amount_btc: float = Field(default=1.0, gt=0)
     mine_confirmation: bool = True
 

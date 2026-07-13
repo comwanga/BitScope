@@ -1,10 +1,11 @@
 from app.rpc.client import BitcoinRpcClient
+from app.rpc.capabilities import ReadOnlyRpcClient
 from app.rpc.types import JsonValue
 
 
 class PeerService:
     def __init__(self, rpc_client: BitcoinRpcClient) -> None:
-        self.rpc_client = rpc_client
+        self.rpc_client = ReadOnlyRpcClient(rpc_client)
 
     def summary(self) -> dict[str, object]:
         network = self._as_dict(self.rpc_client.call("getnetworkinfo"))

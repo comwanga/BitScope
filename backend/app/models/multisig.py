@@ -7,20 +7,20 @@ class MultisigCreateRequest(BaseModel):
     wallet_name: str = Field(min_length=1, max_length=128)
     required_signatures: int = Field(ge=1, le=15)
     signer_count: int = Field(ge=1, le=15)
-    address_type: str = "bech32"
+    address_type: str = Field(default="bech32", max_length=32)
 
 
 class MultisigFundRequest(BaseModel):
     wallet_name: str = Field(min_length=1, max_length=128)
-    multisig_address: str = Field(min_length=1)
+    multisig_address: str = Field(min_length=1, max_length=128)
     amount_btc: float = Field(gt=0)
     mine_confirmation: bool = True
 
 
 class MultisigSpendRequest(BaseModel):
     wallet_name: str = Field(min_length=1, max_length=128)
-    multisig_address: str = Field(min_length=1)
-    destination_address: str = Field(min_length=1)
+    multisig_address: str = Field(min_length=1, max_length=128)
+    destination_address: str = Field(min_length=1, max_length=128)
     amount_btc: float = Field(gt=0)
     extract: bool = False
 

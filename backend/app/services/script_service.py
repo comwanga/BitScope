@@ -1,6 +1,8 @@
 from app.errors import BitScopeError
 from app.rpc.client import BitcoinRpcClient
+from app.rpc.capabilities import RegtestMutationRpcClient
 from app.rpc.types import JsonValue
+from app.services.network_safety import NetworkSafetyGuard
 from app.services.spend_preflight import SpendPreflight
 
 
@@ -60,7 +62,7 @@ OPCODE_DESCRIPTIONS = {
 
 class ScriptService:
     def __init__(self, rpc_client: BitcoinRpcClient) -> None:
-        self.rpc_client = rpc_client
+        self.rpc_client = RegtestMutationRpcClient(rpc_client)
 
     def decode(self, script_hex: str) -> dict[str, object]:
         clean_hex = script_hex.strip().lower()
@@ -143,7 +145,7 @@ class ScriptService:
         broadcast: bool = False,
         mine_confirmation: bool = False,
     ) -> dict[str, object]:
-        self._require_regtest()
+        NetworkSafetyGuard(self.rpc_client).require_regtest()
         clean_wallet = self._clean_text(wallet_name, "wallet name")
         clean_format = data_format.strip().lower()
         data_hex = self._encode_op_return_data(data, clean_format)
@@ -481,15 +483,6 @@ class ScriptService:
                 status_code=400,
             )
         return f"{byte_length:02x}{value}"
-
-    def _require_regtest(self) -> None:
-        if self.rpc_client.settings.bitcoin_network != "regtest":
-            raise BitScopeError(
-                code="REGTEST_ONLY",
-                message="This action is only available when BITCOIN_NETWORK is set to regtest.",
-                status_code=400,
-                details={"network": self.rpc_client.settings.bitcoin_network},
-            )
 
     @staticmethod
     def _clean_text(value: str, label: str) -> str:

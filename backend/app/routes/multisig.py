@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.models.multisig import (
     MultisigCreateRequest,
@@ -9,12 +9,13 @@ from app.models.multisig import (
     MultisigSpendResponse,
 )
 from app.rpc.client import BitcoinRpcClient
+from app.security import require_mutation_access
 from app.services.multisig_service import MultisigService
 
 router = APIRouter(prefix="/multisig", tags=["multisig"])
 
 
-@router.post("/create", response_model=MultisigCreateResponse)
+@router.post("/create", response_model=MultisigCreateResponse, dependencies=[Depends(require_mutation_access)])
 def create_multisig(request: MultisigCreateRequest) -> MultisigCreateResponse:
     with BitcoinRpcClient() as rpc_client:
         result = MultisigService(rpc_client).create(
@@ -27,7 +28,7 @@ def create_multisig(request: MultisigCreateRequest) -> MultisigCreateResponse:
     return MultisigCreateResponse.model_validate(result)
 
 
-@router.post("/fund", response_model=MultisigFundResponse)
+@router.post("/fund", response_model=MultisigFundResponse, dependencies=[Depends(require_mutation_access)])
 def fund_multisig(request: MultisigFundRequest) -> MultisigFundResponse:
     with BitcoinRpcClient() as rpc_client:
         result = MultisigService(rpc_client).fund(
@@ -40,7 +41,7 @@ def fund_multisig(request: MultisigFundRequest) -> MultisigFundResponse:
     return MultisigFundResponse.model_validate(result)
 
 
-@router.post("/spend-psbt", response_model=MultisigSpendResponse)
+@router.post("/spend-psbt", response_model=MultisigSpendResponse, dependencies=[Depends(require_mutation_access)])
 def spend_multisig_psbt(request: MultisigSpendRequest) -> MultisigSpendResponse:
     with BitcoinRpcClient() as rpc_client:
         result = MultisigService(rpc_client).spend_psbt(

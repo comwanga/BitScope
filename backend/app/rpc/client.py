@@ -4,6 +4,7 @@ from urllib.parse import quote
 import httpx
 
 from app.config import Settings, get_settings
+from app.rpc.capabilities import FORBIDDEN_RPC_METHODS, forbidden_rpc_error
 from app.rpc.errors import RpcError, map_rpc_error
 from app.rpc.types import RpcParams, JsonValue
 
@@ -32,6 +33,8 @@ class BitcoinRpcClient:
         self.close()
 
     def call(self, method: str, params: RpcParams = None, wallet_name: str | None = None) -> JsonValue:
+        if method in FORBIDDEN_RPC_METHODS:
+            raise forbidden_rpc_error(method)
         payload = {
             "jsonrpc": "1.0",
             "id": next(self._id_counter),

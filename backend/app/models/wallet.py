@@ -8,8 +8,8 @@ class WalletActionRequest(BaseModel):
 
 
 class NewAddressRequest(BaseModel):
-    label: str = ""
-    address_type: str = "bech32"
+    label: str = Field(default="", max_length=128)
+    address_type: str = Field(default="bech32", max_length=32)
 
 
 class WalletInfo(BaseModel):

@@ -1,4 +1,9 @@
 from app.rpc.client import BitcoinRpcClient
+from app.services.multisig_service import MultisigService
+from app.services.psbt_service import PsbtService
+from app.services.script_service import ScriptService
+from app.services.timelock_service import TimelockService
+from app.services.transaction_service import TransactionService
 
 
 def test_live_regtest_wallet_can_send_after_coinbase_maturity(
@@ -21,3 +26,102 @@ def test_live_regtest_wallet_can_send_after_coinbase_maturity(
     block_hashes = live_rpc_client.call("generatetoaddress", [1, mining_address])
     assert isinstance(block_hashes, list)
     assert len(block_hashes) == 1
+
+
+def test_live_regtest_advanced_transaction_workflows(
+    live_rpc_client: BitcoinRpcClient,
+    mature_wallet: str,
+) -> None:
+    recipient = live_rpc_client.call("getnewaddress", ["bitscope-psbt-recipient", "bech32"], wallet_name=mature_wallet)
+    assert isinstance(recipient, str)
+
+    psbt_service = PsbtService(live_rpc_client)
+    created_psbt = psbt_service.create(mature_wallet, recipient, 0.25)
+    processed_psbt = psbt_service.process(mature_wallet, str(created_psbt["psbt"]), sign=True)
+    finalized_psbt = psbt_service.finalize(str(processed_psbt["psbt"]), extract=True)
+    assert processed_psbt["complete"] is True
+    assert finalized_psbt["complete"] is True
+    assert isinstance(finalized_psbt["hex"], str)
+
+    multisig_service = MultisigService(live_rpc_client)
+    multisig = multisig_service.create(mature_wallet, 1, 2, "bech32")
+    funded_multisig = multisig_service.fund(mature_wallet, str(multisig["multisig_address"]), 0.2, True)
+    multisig_destination = live_rpc_client.call(
+        "getnewaddress", ["bitscope-multisig-destination", "bech32"], wallet_name=mature_wallet
+    )
+    assert isinstance(multisig_destination, str)
+    multisig_spend = multisig_service.spend_psbt(
+        mature_wallet,
+        str(multisig["multisig_address"]),
+        multisig_destination,
+        0.1,
+        True,
+    )
+    assert len(str(funded_multisig["txid"])) == 64
+    assert multisig_spend["complete"] is True
+
+    height = live_rpc_client.call("getblockcount")
+    assert isinstance(height, int)
+    timelock_destination = live_rpc_client.call(
+        "getnewaddress", ["bitscope-timelock-destination", "bech32"], wallet_name=mature_wallet
+    )
+    assert isinstance(timelock_destination, str)
+    timelock = TimelockService(live_rpc_client).create_locktime_transaction(
+        mature_wallet,
+        timelock_destination,
+        0.05,
+        height + 5,
+        0xFFFFFFFD,
+    )
+    assert timelock["complete"] is True
+    assert isinstance(timelock["signed_hex"], str)
+
+    op_return = ScriptService(live_rpc_client).create_op_return(
+        mature_wallet,
+        "BitScope integration",
+        "text",
+        broadcast=False,
+        mine_confirmation=False,
+    )
+    assert op_return["complete"] is True
+    assert op_return["data_utf8"] == "BitScope integration"
+
+    rbf_destination = live_rpc_client.call("getnewaddress", ["bitscope-rbf", "bech32"], wallet_name=mature_wallet)
+    assert isinstance(rbf_destination, str)
+    rbf_txid = live_rpc_client.call("sendtoaddress", [rbf_destination, 0.1], wallet_name=mature_wallet)
+    assert isinstance(rbf_txid, str)
+    replacement = TransactionService(live_rpc_client).bump_rbf_transaction(mature_wallet, rbf_txid, 100.0, None)
+    assert isinstance(replacement["replacement_txid"], str)
+
+    cpfp_destination = live_rpc_client.call("getnewaddress", ["bitscope-cpfp", "bech32"], wallet_name=mature_wallet)
+    assert isinstance(cpfp_destination, str)
+    parent_txid = live_rpc_client.call("sendtoaddress", [cpfp_destination, 0.1], wallet_name=mature_wallet)
+    assert isinstance(parent_txid, str)
+    parent = live_rpc_client.call("getrawtransaction", [parent_txid, True])
+    assert isinstance(parent, dict)
+    parent_vout = _find_output(parent, cpfp_destination)
+    child_destination = live_rpc_client.call("getnewaddress", ["bitscope-cpfp-child", "bech32"], wallet_name=mature_wallet)
+    assert isinstance(child_destination, str)
+    child = TransactionService(live_rpc_client).create_cpfp_child(
+        mature_wallet,
+        parent_txid,
+        parent_vout,
+        child_destination,
+        0.05,
+        25.0,
+        False,
+    )
+    assert child["complete"] is True
+    assert child["broadcast"] is False
+
+
+def _find_output(transaction: dict[str, object], address: str) -> int:
+    outputs = transaction.get("vout")
+    assert isinstance(outputs, list)
+    for output in outputs:
+        if not isinstance(output, dict):
+            continue
+        script = output.get("scriptPubKey")
+        if isinstance(script, dict) and script.get("address") == address and isinstance(output.get("n"), int):
+            return int(output["n"])
+    raise AssertionError(f"Transaction does not contain expected output for {address}")

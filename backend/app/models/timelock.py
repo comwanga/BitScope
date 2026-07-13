@@ -5,16 +5,16 @@ from pydantic import BaseModel, Field
 
 class LocktimeTransactionRequest(BaseModel):
     wallet_name: str = Field(min_length=1, max_length=128)
-    destination_address: str = Field(min_length=1)
+    destination_address: str = Field(min_length=1, max_length=128)
     amount_btc: float = Field(gt=0)
     locktime: int = Field(ge=0)
     sequence: int = Field(ge=0, le=4_294_967_295)
 
 
 class TimelockScriptRequest(BaseModel):
-    mode: str
+    mode: str = Field(min_length=1, max_length=16)
     value: int = Field(ge=0)
-    pubkey_hex: str = Field(min_length=1)
+    pubkey_hex: str = Field(min_length=1, max_length=130)
 
 
 class LocktimeTransactionResponse(BaseModel):

@@ -1,11 +1,13 @@
 from app.errors import BitScopeError
 from app.rpc.client import BitcoinRpcClient
+from app.rpc.capabilities import RegtestMutationRpcClient
 from app.rpc.types import JsonValue
+from app.services.network_safety import NetworkSafetyGuard
 
 
 class TimelockService:
     def __init__(self, rpc_client: BitcoinRpcClient) -> None:
-        self.rpc_client = rpc_client
+        self.rpc_client = RegtestMutationRpcClient(rpc_client)
 
     def create_locktime_transaction(
         self,
@@ -15,7 +17,7 @@ class TimelockService:
         locktime: int,
         sequence: int,
     ) -> dict[str, object]:
-        self._require_regtest()
+        NetworkSafetyGuard(self.rpc_client).require_regtest()
         clean_wallet = self._clean(wallet_name, "wallet name")
         clean_address = self._clean(destination_address, "destination address")
         amount = self._amount(amount_btc)
@@ -144,15 +146,6 @@ class TimelockService:
             ),
             "raw": {"decodescript": decoded},
         }
-
-    def _require_regtest(self) -> None:
-        if self.rpc_client.settings.bitcoin_network != "regtest":
-            raise BitScopeError(
-                code="REGTEST_ONLY",
-                message="This timelock lab is only available when BITCOIN_NETWORK is set to regtest.",
-                status_code=400,
-                details={"network": self.rpc_client.settings.bitcoin_network},
-            )
 
     @staticmethod
     def _script_number(value: int) -> str:

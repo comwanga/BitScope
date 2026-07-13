@@ -44,6 +44,76 @@ jobs:
       - name: Run tests
         run: python -m pytest
 
+  bitcoin-core-integration:
+    name: Bitcoin Core 28.1 regtest integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      BITSCOPE_LIVE_RPC_TESTS: "1"
+      BITCOIN_NETWORK: regtest
+      BITCOIN_RPC_HOST: 127.0.0.1
+      BITCOIN_RPC_PORT: "18443"
+      BITCOIN_RPC_USER: bitscope_ci
+      BITCOIN_RPC_PASSWORD: bitscope_ci_password
+      BITCOIN_RPC_TIMEOUT_SECONDS: "30"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Start pinned Bitcoin Core regtest
+        shell: bash
+        working-directory: .
+        run: |
+          docker run --detach --name bitscope-core-ci \
+            --publish 18443:18443 \
+            bitcoin/bitcoin:28.1 \
+            -regtest -server=1 -printtoconsole -deprecatedrpc=create_bdb \
+            -rpcbind=0.0.0.0 -rpcallowip=0.0.0.0/0 \
+            -rpcuser=bitscope_ci -rpcpassword=bitscope_ci_password \
+            -fallbackfee=0.0001 -txindex=1
+
+      - name: Wait for Bitcoin Core RPC
+        shell: bash
+        working-directory: .
+        run: |
+          for attempt in $(seq 1 60); do
+            if docker exec bitscope-core-ci bitcoin-cli -regtest \
+              -rpcuser=bitscope_ci -rpcpassword=bitscope_ci_password getblockchaininfo >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs bitscope-core-ci
+          exit 1
+
+      - name: Run deterministic live-node workflows
+        run: python -m pytest tests/live_node -v
+
+      - name: Show Bitcoin Core logs on failure
+        if: failure()
+        shell: bash
+        working-directory: .
+        run: docker logs bitscope-core-ci
+
+      - name: Remove temporary Bitcoin Core node
+        if: always()
+        shell: bash
+        working-directory: .
+        run: docker rm --force --volumes bitscope-core-ci
+
   frontend:
     name: Frontend build
     runs-on: ubuntu-latest
@@ -82,6 +152,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - backend
+      - bitcoin-core-integration
       - frontend
       - docker-staging-config
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'

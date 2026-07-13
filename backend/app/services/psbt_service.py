@@ -1,14 +1,17 @@
 from app.errors import BitScopeError
 from app.rpc.client import BitcoinRpcClient
+from app.rpc.capabilities import RegtestMutationRpcClient
 from app.rpc.types import JsonValue
+from app.services.network_safety import NetworkSafetyGuard
 from app.services.spend_preflight import SpendPreflight
 
 
 class PsbtService:
     def __init__(self, rpc_client: BitcoinRpcClient) -> None:
-        self.rpc_client = rpc_client
+        self.rpc_client = RegtestMutationRpcClient(rpc_client)
 
     def create(self, wallet_name: str, recipient_address: str, amount_btc: float) -> dict[str, object]:
+        NetworkSafetyGuard(self.rpc_client).require_regtest()
         clean_wallet = self._clean(wallet_name, "wallet name")
         clean_address = self._clean(recipient_address, "recipient address")
         amount = self._amount(amount_btc)
@@ -94,12 +97,8 @@ class PsbtService:
     def process(self, wallet_name: str, psbt: str, sign: bool = True) -> dict[str, object]:
         clean_wallet = self._clean(wallet_name, "wallet name")
         clean_psbt = self._clean(psbt, "PSBT")
-        if sign and self.rpc_client.settings.bitcoin_network == "mainnet":
-            raise BitScopeError(
-                code="MAINNET_SIGNING_DISABLED",
-                message="PSBT signing is disabled on mainnet by default to protect real funds.",
-                status_code=400,
-            )
+        if sign:
+            NetworkSafetyGuard(self.rpc_client).require_regtest()
 
         result = self._as_dict(self.rpc_client.call("walletprocesspsbt", [clean_psbt, sign], wallet_name=clean_wallet))
         processed_psbt = self._optional_str(result.get("psbt"))

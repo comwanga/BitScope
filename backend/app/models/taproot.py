@@ -1,11 +1,11 @@
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TaprootInspectRequest(BaseModel):
-    address: str | None = None
-    script_hex: str | None = None
+    address: str | None = Field(default=None, max_length=128)
+    script_hex: str | None = Field(default=None, max_length=1_000_000)
 
 
 class TaprootInspectResponse(BaseModel):

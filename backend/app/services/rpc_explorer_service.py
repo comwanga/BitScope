@@ -2,6 +2,7 @@ from typing import Any
 
 from app.errors import BitScopeError
 from app.rpc.client import BitcoinRpcClient
+from app.rpc.capabilities import ReadOnlyRpcClient
 from app.rpc.types import READ_ONLY_RPC_METHODS, RpcParams
 
 
@@ -130,7 +131,7 @@ RPC_METHOD_CATALOG: list[dict[str, object]] = [
 
 class RpcExplorerService:
     def __init__(self, rpc_client: BitcoinRpcClient) -> None:
-        self.rpc_client = rpc_client
+        self.rpc_client = ReadOnlyRpcClient(rpc_client)
 
     def list_methods(self) -> dict[str, object]:
         methods = sorted(RPC_METHOD_CATALOG, key=lambda item: (str(item["category"]), str(item["name"])))

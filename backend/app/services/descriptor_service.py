@@ -1,11 +1,12 @@
 from app.errors import BitScopeError
 from app.rpc.client import BitcoinRpcClient
+from app.rpc.capabilities import WalletReadRpcClient
 from app.rpc.types import JsonValue
 
 
 class DescriptorService:
     def __init__(self, rpc_client: BitcoinRpcClient) -> None:
-        self.rpc_client = rpc_client
+        self.rpc_client = WalletReadRpcClient(rpc_client)
 
     def analyze(self, descriptor: str, derive_start: int | None = None, derive_end: int | None = None) -> dict[str, object]:
         clean_descriptor = descriptor.strip()

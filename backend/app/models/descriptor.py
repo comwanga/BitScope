@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 
 class DescriptorAnalyzeRequest(BaseModel):
-    descriptor: str = Field(min_length=1)
+    descriptor: str = Field(min_length=1, max_length=10_000)
     derive_start: int | None = Field(default=None, ge=0, le=1_000_000)
     derive_end: int | None = Field(default=None, ge=0, le=1_000_000)
 

@@ -125,6 +125,8 @@ Start after Phase 0 controls are merged.
 
 ### LAB-01: Persistent lab sessions
 
+Status: implemented with SQLite persistence, namespaced wallet generations, resume/reset/export, and ownership-checked cleanup.
+
 Introduce a reconstructible session store with:
 
 - session ID and namespaced wallet (`bitscope-session-<id>`),

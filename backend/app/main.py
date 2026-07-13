@@ -5,7 +5,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from app.config import Settings, get_settings
 from app.errors import BitScopeError, bitscope_error_handler, http_exception_handler
 from app.middleware import RequestBodyLimitMiddleware
-from app.routes import addresses, blocks, demo, descriptors, fees, health, indexer, integrations, keys, learning, live, mempool, multisig, node, peers, psbt, regtest, rpc_explorer, scripts, taproot, timelocks, transactions, wallets
+from app.routes import addresses, blocks, demo, descriptors, fees, health, indexer, integrations, keys, labs, learning, live, mempool, multisig, node, peers, psbt, regtest, rpc_explorer, scripts, taproot, timelocks, transactions, wallets
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -27,7 +27,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.backend_cors_origins,
         allow_credentials=False,
-        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "X-BitScope-Token"],
     )
 
@@ -56,6 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(integrations.router, prefix=settings.api_prefix)
     app.include_router(keys.router, prefix=settings.api_prefix)
     app.include_router(live.router, prefix=settings.api_prefix)
+    app.include_router(labs.router, prefix=settings.api_prefix)
 
     return app
 

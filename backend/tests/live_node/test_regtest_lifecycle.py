@@ -1,9 +1,34 @@
 from app.rpc.client import BitcoinRpcClient
 from app.services.multisig_service import MultisigService
+from app.services.lab_session_service import LabSessionService
+from app.services.lab_session_store import LabSessionStore
 from app.services.psbt_service import PsbtService
 from app.services.script_service import ScriptService
 from app.services.timelock_service import TimelockService
 from app.services.transaction_service import TransactionService
+
+
+def test_live_regtest_lab_session_lifecycle(
+    live_rpc_client: BitcoinRpcClient,
+    tmp_path: Path,
+) -> None:
+    service = LabSessionService(live_rpc_client, LabSessionStore(str(tmp_path / "labs.sqlite3")))
+    session = service.create("integration")
+    assert session.wallet_name.startswith(f"bitscope-session-{session.session_id}")
+
+    resumed = LabSessionService(
+        live_rpc_client,
+        LabSessionStore(str(tmp_path / "labs.sqlite3")),
+    ).get(session.session_id)
+    assert resumed.wallet_name == session.wallet_name
+
+    reset, previous_wallet = service.reset(session.session_id)
+    assert reset.wallet_name.endswith("-r1")
+    assert previous_wallet != reset.wallet_name
+
+    cleaned, unloaded = service.cleanup(session.session_id)
+    assert cleaned.status == "cleaned"
+    assert reset.wallet_name in unloaded
 
 
 def test_live_regtest_wallet_can_send_after_coinbase_maturity(
@@ -125,3 +150,4 @@ def _find_output(transaction: dict[str, object], address: str) -> int:
         if isinstance(script, dict) and script.get("address") == address and isinstance(output.get("n"), int):
             return int(output["n"])
     raise AssertionError(f"Transaction does not contain expected output for {address}")
+from pathlib import Path

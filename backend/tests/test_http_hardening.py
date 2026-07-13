@@ -67,7 +67,7 @@ def test_cors_preflight_allows_only_configured_origin_method_and_headers() -> No
         "/api/wallets/create",
         headers={
             "Origin": "http://localhost:3000",
-            "Access-Control-Request-Method": "DELETE",
+            "Access-Control-Request-Method": "PUT",
         },
     )
 

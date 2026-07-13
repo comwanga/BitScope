@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     backend_trusted_hosts: Annotated[list[str], NoDecode] = ["localhost", "127.0.0.1", "testserver", "backend", "frontend"]
     max_request_body_bytes: int = Field(default=1_048_576, ge=1_024, le=10_485_760)
     bitscope_local_access_token: str = Field(default_factory=lambda: token_urlsafe(32), repr=False)
+    lab_session_database_path: str = "data/lab-sessions.sqlite3"
 
     model_config = SettingsConfigDict(
         env_file=".env",

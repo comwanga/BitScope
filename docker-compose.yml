@@ -52,6 +52,9 @@ services:
       BACKEND_TRUSTED_HOSTS: localhost,127.0.0.1,backend,frontend
       MAX_REQUEST_BODY_BYTES: "1048576"
       BITSCOPE_LOCAL_ACCESS_TOKEN: ${BITSCOPE_LOCAL_ACCESS_TOKEN:-replace-with-a-random-local-token}
+      LAB_SESSION_DATABASE_PATH: /data/lab-sessions.sqlite3
+    volumes:
+      - bitscope-sessions:/data
     ports:
       - "8000:8000"
     depends_on:
@@ -75,3 +78,4 @@ services:
 
 volumes:
   bitcoind-regtest:
+  bitscope-sessions:

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from app.rpc.client import BitcoinRpcClient
 from app.services.multisig_service import MultisigService
 from app.services.lab_session_service import LabSessionService
@@ -150,4 +152,3 @@ def _find_output(transaction: dict[str, object], address: str) -> int:
         if isinstance(script, dict) and script.get("address") == address and isinstance(output.get("n"), int):
             return int(output["n"])
     raise AssertionError(f"Transaction does not contain expected output for {address}")
-from pathlib import Path

@@ -43,7 +43,9 @@ class RequestBodyLimitMiddleware:
         async def replay() -> AsgiMessage:
             nonlocal delivered
             if delivered:
-                return {"type": "http.disconnect"}
+                # Streaming responses continue listening for the real client
+                # disconnect after the buffered request has been replayed.
+                return await receive()
             delivered = True
             return {"type": "http.request", "body": bytes(body), "more_body": False}
 

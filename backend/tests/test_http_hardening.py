@@ -1,9 +1,12 @@
 import pytest
+from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from app.config import Settings
 from app.main import create_app
+from app.middleware import RequestBodyLimitMiddleware
 from app.models.descriptor import DescriptorAnalyzeRequest
 from app.models.psbt import DecodePsbtRequest
 from app.models.script import ScriptTestRequest
@@ -50,6 +53,26 @@ def test_request_body_limit_rejects_payload_before_route_parsing() -> None:
         "message": "The request body exceeds BitScope's configured size limit.",
         "details": {"max_body_bytes": 1_024},
     }
+
+
+def test_request_body_limit_preserves_streaming_response_chunks() -> None:
+    streaming_app = FastAPI()
+
+    @streaming_app.get("/events")
+    async def events() -> StreamingResponse:
+        async def generate():
+            yield "event: sample\ndata: one\n\n"
+            yield "event: sample\ndata: two\n\n"
+
+        return StreamingResponse(generate(), media_type="text/event-stream")
+
+    streaming_app.add_middleware(RequestBodyLimitMiddleware, max_body_bytes=1_024)
+
+    with TestClient(streaming_app) as client:
+        response = client.get("/events")
+
+    assert response.status_code == 200
+    assert response.text == "event: sample\ndata: one\n\nevent: sample\ndata: two\n\n"
 
 
 def test_cors_preflight_allows_only_configured_origin_method_and_headers() -> None:

@@ -1,90 +1,66 @@
 # Live Bitcoin Core RPC Testing
 
-BitScope's default test suite should be deterministic and mock Bitcoin Core. Tests that touch a real node must be opt-in because a live regtest node has durable state: wallets, addresses, UTXOs, mempool entries, and block height survive between test runs unless the datadir is reset.
+The ordinary backend suite uses deterministic fake RPC transports. Tests in `backend/tests/live_node/` are opt-in because a real regtest node has durable state: wallets, addresses, UTXOs, mempool entries, and block height survive between runs unless its datadir is reset.
 
-## Common Failure Patterns
+CI runs these tests against the pinned version documented in [Supported Bitcoin Core Versions](supported-bitcoin-core.md), using a disposable container and datadir.
 
-### `RPC_INSUFFICIENT_FUNDS (-4/-6)` and Coinbase Maturity
+## Run Locally
 
-Fresh regtest mining creates coinbase rewards, but those rewards are not spendable immediately. A wallet can display a large immature balance while `sendtoaddress`, `fundrawtransaction`, or PSBT funding still fails.
-
-Mitigation:
-
-- Mine to the same wallet that will spend.
-- Require a trusted spendable balance before transaction-building tests.
-- Mine at least 101 blocks before spending fresh coinbase rewards.
-- For tests that spend more than 50 BTC, mine enough mature coinbase outputs plus fee headroom.
-
-### `RPC_INVALID_ADDRESS_OR_KEY (-5)`
-
-Regtest addresses, txids, wallet names, and PSBT inputs from a previous datadir reset are stale. A test must not reuse values copied from browser state, logs, fixtures, or a previous test run.
-
-Mitigation:
-
-- Generate addresses inside the test that uses them.
-- Validate destination addresses with `validateaddress` before spending.
-- Use unique wallet names per test run.
-- Treat txids as run-local values.
-
-### Docker-to-Host RPC Routing
-
-`BITCOIN_RPC_HOST=bitcoind` is correct inside Docker Compose, where `bitcoind` is a service DNS name. Native pytest runs from the host should use `127.0.0.1` or `localhost`.
-
-Mitigation:
-
-- Use `backend/.env.docker` for Compose.
-- Use `backend/.env` for native FastAPI and pytest.
-- Do not share a Docker-only hostname with host-native tests.
-
-## Opt-In Live Test Command
+Start a dedicated regtest node. Do not point these tests at a developer wallet or a node on mainnet, testnet, or signet.
 
 ```powershell
 cd backend
 $env:BITSCOPE_LIVE_RPC_TESTS = "1"
 $env:BITCOIN_NETWORK = "regtest"
 $env:BITCOIN_RPC_HOST = "127.0.0.1"
-pytest tests/live_node
+$env:BITCOIN_RPC_PORT = "18443"
+$env:BITCOIN_RPC_USER = "your_rpc_user"
+$env:BITCOIN_RPC_PASSWORD = "your_rpc_password"
+python -m pytest tests/live_node -v
 ```
 
-CI runs the same directory in a dedicated blocking job against the pinned Bitcoin Core version documented in [supported-bitcoin-core.md](supported-bitcoin-core.md). The ordinary backend unit-test job still runs without a node and skips this directory.
+Without `BITSCOPE_LIVE_RPC_TESTS=1`, the ordinary backend suite collects and skips the live tests.
 
-## Isolated Lifecycle Fixture
+## Isolation Rules
 
-The fixture in `backend/tests/live_node/conftest.py` enforces this lifecycle:
+The live fixtures and session tests must:
 
-```python
-@pytest.fixture()
-def isolated_wallet(live_rpc_client):
-    wallet_name = f"bitscope-test-{uuid.uuid4().hex[:12]}"
-    live_rpc_client.call("createwallet", [wallet_name, False, False, "", False, True, True])
-    try:
-        yield wallet_name
-    finally:
-        live_rpc_client.call("unloadwallet", [wallet_name])
+- verify the runtime chain is `regtest` before mutation;
+- create unique, test-owned wallet names;
+- generate addresses during the test that consumes them;
+- mine coinbase rewards to the wallet that will spend them;
+- wait at least 101 blocks before spending new coinbase outputs;
+- unload disposable wallets during teardown;
+- avoid values copied from a previous datadir or browser session;
+- leave developer wallets and persistent datadirs untouched.
 
+The pinned integration job currently enables Bitcoin Core 28.1's `create_bdb` compatibility because the multisig lesson exercises `addmultisigaddress`. This is an explicit compatibility constraint, not a recommendation for new wallet designs.
 
-def ensure_mature_balance(client, wallet_name, minimum_btc):
-    balances = client.call("getbalances", [], wallet_name=wallet_name)
-    if _wallet_balance(balances, "trusted") >= minimum_btc:
-        return
+## Common Failures
 
-    address = client.call("getnewaddress", ["bitscope-test-maturity", "bech32"], wallet_name=wallet_name)
-    client.call("generatetoaddress", [101, address])
-```
+### Insufficient or Immature Funds
 
-## Audit Checklist
+A wallet may display a large immature balance while `sendtoaddress`, `fundrawtransaction`, or PSBT funding still fails. Mine 101 blocks to the same wallet and verify its trusted balance before spending.
 
-- [x] `backend/app/rpc/errors.py`: map insufficient funds and stale address failures to actionable API errors.
-- [x] `backend/app/services/regtest_service.py`: validate faucet destination addresses before sending.
-- [x] `backend/app/services/regtest_service.py`: check trusted versus immature wallet balance before `sendtoaddress`.
-- [x] `backend/app/services/timelock_service.py`: validate destination addresses before raw transaction creation.
-- [x] `backend/app/services/timelock_service.py`: skip immature, unsafe, or non-spendable UTXOs.
-- [x] `backend/tests/live_node/`: add an opt-in live regtest fixture with unique wallets and maturity mining.
-- [x] `backend/app/services/transaction_service.py`: apply address validation and mature-balance preflight to regtest raw transaction builders.
-- [x] `backend/app/services/multisig_service.py`: preflight funding wallet balance before multisig funding sends.
-- [x] `backend/app/services/script_service.py`: preflight wallet funding before OP_RETURN transaction builders.
-- [x] `backend/app/services/psbt_service.py`: preflight recipient address and wallet balance before funded PSBT creation.
-- [x] `backend/app/services/spend_preflight.py`: centralize address and mature-balance validation for spend paths.
-- [x] `backend/tests/live_node/`: keep live RPC tests explicitly opt-in outside the dedicated pinned-Core CI job.
-- [x] Frontend: display safe error details such as `trusted_btc`, `immature_btc`, and `minimum_coinbase_confirmations` when present.
-- [ ] Documentation: keep every educational workflow paired with the exact `bitcoin-cli` command and RPC method list.
+### Invalid Address or Transaction
+
+Regtest addresses and txids belong to one datadir. Generate them within the current test run and validate destinations before spending.
+
+### Wrong RPC Host
+
+Use `bitcoind` as the RPC host inside Docker Compose. Use `127.0.0.1` or another explicitly reachable host for native backend and pytest runs.
+
+### Wallet Already Exists
+
+Use a clean disposable datadir or unique wallet names. Do not make tests depend on wallets left by earlier runs.
+
+## Adding a Live Workflow
+
+Before adding a live-node test:
+
+1. Cover transformation and error behavior with fast unit tests.
+2. Keep the live test focused on Bitcoin Core parameter and lifecycle compatibility.
+3. Use the least-powerful RPC capability required by the service.
+4. Assert observable results rather than fixed txids, addresses, or block hashes.
+5. Ensure cleanup still runs after failure.
+6. Update [Supported Bitcoin Core Versions](supported-bitcoin-core.md) if the workflow changes version requirements.

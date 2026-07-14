@@ -164,10 +164,14 @@ jobs:
         shell: bash
         run: |
           test -f README.md
+          test -f CONTRIBUTING.md
+          test -f docs/architecture.md
+          test -f docs/bitcoin-core-setup.md
           test -f docs/demo-script.md
           test -f docs/live-rpc-testing.md
           test -f docs/limitations.md
           test -f docs/docker-regtest.md
+          test -f docs/supported-bitcoin-core.md
 
       - name: Summarize release gate
         shell: bash

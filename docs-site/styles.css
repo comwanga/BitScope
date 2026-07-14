@@ -52,9 +52,19 @@ img {
 }
 
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   font-size: 1.3rem;
   font-weight: 800;
   text-decoration: none;
+}
+
+.brand img {
+  display: block;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
 }
 
 .nav-links {

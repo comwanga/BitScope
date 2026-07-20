@@ -379,7 +379,7 @@ Do not assume the flagship three-branch policy is supported. Implement the prove
 ### Phase 2 - Evidence
 
 - [x] Add centralized typed evidence capture and recursive redaction.
-- [ ] Add deterministic artifact storage, reports, bundle generation, and hashes.
+- [x] Add deterministic artifact storage, reports, bundle generation, and hashes.
 - [x] Distinguish Core output from BitScope interpretation.
 - [ ] Export one simple existing workflow with redaction tests.
 

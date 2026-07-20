@@ -23,6 +23,7 @@ def test_public_config_does_not_expose_rpc_password() -> None:
 
     assert "bitcoin_rpc_password" not in public_config
     assert "bitscope_local_access_token" not in public_config
+    assert "scenario_artifact_root" not in public_config
     assert "super-secret" not in str(public_config)
     assert "local-secret" not in str(public_config)
     assert public_config["local_access_token_configured"] is True

@@ -1,7 +1,8 @@
 from collections.abc import Iterator
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
+from fastapi.responses import StreamingResponse
 
 from app.config import get_settings
 from app.errors import BitScopeError
@@ -14,9 +15,13 @@ from app.models.scenario_api import (
     ScenarioRunMutationRequest,
     ScenarioRunResetResponse,
 )
+from app.models.proof import ScenarioEvidenceResponse
 from app.rpc.client import BitcoinRpcClient
 from app.security import require_mutation_access
 from app.services.scenario_catalog import DEFAULT_SCENARIO_CATALOG, ScenarioCatalog
+from app.services.evidence_service import EvidenceRedactor
+from app.services.proof_bundle_service import ProofBundleService
+from app.services.scenario_artifact_store import ScenarioArtifactStore
 from app.services.scenario_run_store import ScenarioRunStore
 from app.services.scenario_service import ScenarioService
 
@@ -36,6 +41,24 @@ def get_scenario_service(
     store = ScenarioRunStore(get_settings().lab_session_database_path)
     with client:
         yield ScenarioService(client, store, catalog)
+
+
+def get_proof_bundle_service(
+    catalog: ScenarioCatalog = Depends(get_scenario_catalog),
+) -> ProofBundleService:
+    settings = get_settings()
+    return ProofBundleService(
+        ScenarioRunStore(settings.lab_session_database_path),
+        ScenarioArtifactStore(settings.scenario_artifact_root),
+        catalog,
+        EvidenceRedactor(
+            (
+                settings.bitcoin_rpc_user,
+                settings.bitcoin_rpc_password,
+                settings.bitscope_local_access_token,
+            )
+        ),
+    )
 
 
 @catalog_router.get("", response_model=ScenarioCatalogResponse)
@@ -73,6 +96,45 @@ def get_scenario_run(
     service: ScenarioService = Depends(get_scenario_service),
 ) -> ScenarioRun:
     return service.get_run(run_id, lab_session_id)
+
+
+@run_router.get("/{run_id}/evidence", response_model=ScenarioEvidenceResponse)
+def get_scenario_evidence(
+    run_id: UUID,
+    lab_session_id: str = Query(min_length=8, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$"),
+    service: ProofBundleService = Depends(get_proof_bundle_service),
+) -> ScenarioEvidenceResponse:
+    return service.evidence(run_id, lab_session_id)
+
+
+@run_router.get("/{run_id}/report")
+def get_scenario_report(
+    run_id: UUID,
+    lab_session_id: str = Query(min_length=8, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$"),
+    service: ProofBundleService = Depends(get_proof_bundle_service),
+) -> Response:
+    return Response(service.report(run_id, lab_session_id), media_type="text/markdown")
+
+
+@run_router.get("/{run_id}/bundle")
+def get_scenario_bundle(
+    run_id: UUID,
+    lab_session_id: str = Query(min_length=8, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$"),
+    service: ProofBundleService = Depends(get_proof_bundle_service),
+) -> StreamingResponse:
+    bundle = service.bundle(run_id, lab_session_id)
+
+    def chunks() -> Iterator[bytes]:
+        for offset in range(0, len(bundle.zip_bytes), 65_536):
+            yield bundle.zip_bytes[offset : offset + 65_536]
+
+    return StreamingResponse(
+        chunks(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="bitscope-proof-{run_id}.zip"',
+        },
+    )
 
 
 @run_router.post(

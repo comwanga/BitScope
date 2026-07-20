@@ -3,12 +3,16 @@ from __future__ import annotations
 import json
 import re
 from hashlib import sha256
+from uuid import UUID
+
 from pydantic import JsonValue
 
 from app.config import Settings
 from app.errors import BitScopeError
 from app.models.evidence import CapturedEvidence, EvidenceRecord
 from app.models.scenario import EvidenceReference, ScenarioRun
+from app.services.scenario_artifact_store import ScenarioArtifactStore
+from app.services.scenario_run_store import ScenarioRunStore
 
 
 REDACTED = "[REDACTED]"
@@ -155,6 +159,7 @@ class EvidenceService:
             evidence_id=safe_record.evidence_id,
             kind=safe_record.kind,
             label=safe_record.label,
+            relative_path=f"evidence/{safe_record.evidence_id}.json",
             content_sha256=sha256(content).hexdigest(),
         )
         updated_run = run.record_evidence_reference(reference, now=safe_record.captured_at)
@@ -206,3 +211,49 @@ class EvidenceService:
                     command["arguments"] = self.redactor.redact(command.get("arguments", []))
                     command["description"] = self.redactor.redact(command.get("description"))
         return document
+
+
+class ScenarioEvidenceRecorder:
+    """Persist redacted content before committing its reference to the run."""
+
+    def __init__(
+        self,
+        evidence_service: EvidenceService,
+        artifact_store: ScenarioArtifactStore,
+        run_store: ScenarioRunStore,
+    ) -> None:
+        self.evidence_service = evidence_service
+        self.artifact_store = artifact_store
+        self.run_store = run_store
+
+    def record(
+        self,
+        run_id: UUID,
+        lab_session_id: str,
+        expected_revision: int,
+        record: EvidenceRecord,
+    ) -> CapturedEvidence:
+        run = self.run_store.get_for_session(run_id, lab_session_id)
+        if run is None:
+            raise BitScopeError(
+                code="SCENARIO_RUN_NOT_FOUND",
+                message="The requested scenario run does not exist.",
+                status_code=404,
+                details={"run_id": str(run_id)},
+            )
+        if run.revision != expected_revision:
+            raise BitScopeError(
+                code="SCENARIO_RUN_REVISION_CONFLICT",
+                message="The scenario run changed after it was loaded. Reload it before recording evidence.",
+                status_code=409,
+                details={
+                    "run_id": str(run_id),
+                    "expected_revision": expected_revision,
+                    "actual_revision": run.revision,
+                },
+            )
+
+        captured = self.evidence_service.capture(run, record)
+        self.artifact_store.write_evidence(captured)
+        self.run_store.save(captured.run, expected_revision=expected_revision)
+        return captured

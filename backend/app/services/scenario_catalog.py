@@ -85,6 +85,16 @@ class ScenarioCatalog:
 
     def require_version(self, scenario_id: str, version: str) -> ScenarioDefinition:
         definition = self.require_available(scenario_id)
+        return self._require_matching_version(definition, version)
+
+    def get_version(self, scenario_id: str, version: str) -> ScenarioDefinition:
+        """Resolve a historical run definition even when new runs are disabled."""
+
+        definition = self.get(scenario_id).definition
+        return self._require_matching_version(definition, version)
+
+    @staticmethod
+    def _require_matching_version(definition: ScenarioDefinition, version: str) -> ScenarioDefinition:
         if definition.version != version:
             raise BitScopeError(
                 code="SCENARIO_VERSION_NOT_AVAILABLE",

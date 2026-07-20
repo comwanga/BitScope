@@ -90,13 +90,14 @@ Services keep Bitcoin-specific behavior out of route handlers:
 - `ScenarioCatalog`: immutable registry of reviewed, versioned scenario definitions and their run availability.
 - `ScenarioService`: ownership-scoped, optimistic-revision run creation, live regtest preparation, and dispatch to reviewed scenario-specific executors.
 - `TransactionLifecycleService`: the first executable scenario adapter. It uses only the session-owned wallet, rechecks regtest before every mutation, records structured Core output, and proves both a confirmed spend and a value-conservation rejection.
+- `RbfScenarioService`: proves opt-in sequence signaling, the original and replacement mempool states, Core's incremental-fee rejection, successful higher-fee replacement, original eviction, and replacement confirmation.
 - `EvidenceService`: typed evidence capture that keeps Bitcoin Core output separate from BitScope interpretation, recursively redacts credentials and private-key material, emits canonical JSON, and attaches a hash-backed reference to the owning run.
 - `ScenarioArtifactStore`: bounded, run-scoped evidence files with server-generated paths, canonical-content checks, and SHA-256 verification on every read.
 - `ProofBundleService`: deterministic Markdown reports, conditional transcript/command/assertion files, SHA-256 manifests, and ZIP exports with fixed metadata. Bundles are evidence, not attestations or audits.
 
 Scenario runs are stored transactionally beside their owning lab sessions. Their identity fields and recorded histories are append-only, state changes use explicit transitions and revision checks, and reset creates a new run rather than rewriting the old run. Runs that may own resources cannot be reset or deleted until cleanup is recorded as complete.
 
-The transaction lifecycle persists `RUNNING`, `VERIFYING`, `CLEANING`, and terminal checkpoints. Evidence artifacts are written before the checkpoint that references them and removed if that metadata commit loses an optimistic-revision race. Both successful and failed executions attempt session-owned wallet cleanup; a cleanup error produces `CLEANUP_FAILED`, never a verified result.
+Reviewed executors persist `RUNNING`, `VERIFYING`, `CLEANING`, and terminal checkpoints through a shared orchestration contract. Evidence artifacts are written before the checkpoint that references them and removed if that metadata commit loses an optimistic-revision race. Both successful and failed executions attempt session-owned wallet cleanup; a cleanup error produces `CLEANUP_FAILED`, never a verified result.
 
 Preparing a run reuses the live network-safety check and atomically moves `created` to `ready` with a redacted `node.context` artifact. The artifact records the Core-reported chain, version, block height, BitScope interpretation, and credential-free reproduction commands; it does not claim that later scenario steps have executed.
 

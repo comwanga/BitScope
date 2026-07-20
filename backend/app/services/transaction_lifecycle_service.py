@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -22,24 +21,11 @@ from app.rpc.capabilities import RegtestMutationRpcClient, RpcTransport
 from app.services.lab_session_service import LabSessionService
 from app.services.lab_session_store import LabSessionStore
 from app.services.network_safety import NetworkSafetyGuard
+from app.services.scenario_execution import ScenarioExecution, ScenarioExecutionError
 
 
 SATOSHI = Decimal("0.00000001")
 EXPECTED_OVERSPEND_REJECTION = "bad-txns-in-belowout"
-
-
-@dataclass(frozen=True)
-class TransactionLifecycleExecution:
-    evidence_records: list[EvidenceRecord]
-    step_results: list[ScenarioStepResult]
-    assertion_results: list[AssertionResult]
-
-
-class TransactionLifecycleExecutionError(Exception):
-    def __init__(self, step_id: str, cause: BitScopeError) -> None:
-        super().__init__(cause.message)
-        self.step_id = step_id
-        self.cause = cause
 
 
 class TransactionLifecycleService:
@@ -49,7 +35,7 @@ class TransactionLifecycleService:
         self.rpc = RegtestMutationRpcClient(rpc_client)
         self.lab_store = lab_store
 
-    def execute(self, run: ScenarioRun, definition: ScenarioDefinition) -> TransactionLifecycleExecution:
+    def execute(self, run: ScenarioRun, definition: ScenarioDefinition) -> ScenarioExecution:
         captured_at = datetime.now(UTC)
         current_step = "prepare_wallet"
         try:
@@ -209,7 +195,7 @@ class TransactionLifecycleService:
                 selected_utxos,
             )
         except BitScopeError as exc:
-            raise TransactionLifecycleExecutionError(current_step, exc) from exc
+            raise ScenarioExecutionError(current_step, exc) from exc
 
         evidence_records = self._evidence_records(
             run=run,
@@ -234,7 +220,7 @@ class TransactionLifecycleService:
         )
         step_results = self._step_results(captured_at, reject_reason)
         assertion_results = self._assertion_results()
-        return TransactionLifecycleExecution(evidence_records, step_results, assertion_results)
+        return ScenarioExecution(evidence_records, step_results, assertion_results)
 
     def cleanup(self, run: ScenarioRun) -> list[str]:
         _, unloaded = LabSessionService(self.rpc.transport, self.lab_store).cleanup(run.lab_session_id)

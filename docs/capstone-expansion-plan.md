@@ -387,7 +387,7 @@ Do not assume the flagship three-branch policy is supported. Implement the prove
 
 - [ ] Implement transaction lifecycle, RBF, multisig PSBT, and one real timelock scenario.
   - [x] Transaction lifecycle: confirmed positive path, pinned overspend rejection, deterministic evidence, and verified cleanup.
-  - [ ] RBF replacement.
+  - [x] RBF replacement: opt-in signaling, exact insufficient-fee rejection, original eviction, replacement confirmation, evidence, and cleanup.
   - [ ] Multisig PSBT.
   - [ ] One real timelock spend.
 - [ ] Add CPFP and OP_RETURN only after the mandatory four are complete or in parallel without weakening them.

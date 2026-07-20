@@ -38,6 +38,8 @@ The pinned integration job currently enables Bitcoin Core 28.1's `create_bdb` co
 
 The verified transaction-lifecycle test mines its 102 maturity blocks in bounded batches so each RPC stays within the normal request timeout. It selects two distinct mature outputs: one follows preflight, broadcast, mempool, confirmation, and decode; the other signs a one-satoshi overspend that pinned Core 28.1 rejects as `bad-txns-in-belowout`.
 
+The verified RBF test creates an original transaction at 2 sat/vB with `replaceable=true`, records its input sequences and `bip125-replaceable` mempool field, and asks `bumpfee` for the same observed rate. Pinned Core 28.1 returns RPC `-8` with structured old-fee and incremental-fee details. The scenario then adds 10 sat/vB, verifies the original is absent, observes the replacement, and confirms it.
+
 ## Common Failures
 
 ### Insufficient or Immature Funds

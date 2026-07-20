@@ -104,7 +104,19 @@ class FakeBuilderRpcClient:
         if method == "signrawtransactionwithwallet":
             return {"hex": "00cc", "complete": self.complete}
         if method == "decoderawtransaction":
+            if params == ["00dd"]:
+                return {"txid": "44" * 32, "vin": [{"sequence": 0xFFFFFFFD}], "vout": []}
             return {"txid": "11" * 32}
+        if method == "sendtoaddress":
+            return "44" * 32
+        if method == "gettransaction":
+            return {"txid": "44" * 32, "hex": "00dd", "confirmations": 0}
+        if method == "getmempoolentry":
+            return {
+                "vsize": 141,
+                "fees": {"base": 0.00000282},
+                "bip125-replaceable": True,
+            }
         if method == "sendrawtransaction":
             return "22" * 32
         if method == "bumpfee":
@@ -237,6 +249,27 @@ def test_bump_rbf_transaction_uses_wallet_bumpfee() -> None:
     assert result["replacement_txid"] == "33" * 32
     assert result["fee_delta_btc"] == 0.00001
     assert rpc.calls[-1] == ("bumpfee", [TXID, {"fee_rate": 12.5, "conf_target": 3, "estimate_mode": "economical"}], "demo")
+
+
+def test_create_rbf_transaction_sets_replaceable_and_records_live_policy() -> None:
+    rpc = FakeBuilderRpcClient()
+
+    result = TransactionService(rpc).create_rbf_transaction(  # type: ignore[arg-type]
+        "demo",
+        "bcrt1qdest",
+        0.1,
+        2.0,
+    )
+
+    assert result["txid"] == "44" * 32
+    assert result["sequences"] == [0xFFFFFFFD]
+    assert result["signals_rbf"] is True
+    assert result["fee_rate_sat_vb"] == 2.0
+    assert (
+        "sendtoaddress",
+        ["bcrt1qdest", 0.1, "", "", False, True, None, "unset", None, 2.0],
+        "demo",
+    ) in rpc.calls
 
 
 def test_create_cpfp_child_builds_tests_and_broadcasts_child() -> None:

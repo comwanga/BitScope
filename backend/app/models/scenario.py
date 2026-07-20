@@ -133,6 +133,39 @@ class SignRawTransactionStep(ScenarioStepBase):
     output_transaction_ref: ArtifactKey
 
 
+class CreateWalletRbfTransactionStep(ScenarioStepBase):
+    type: Literal["create_wallet_rbf_transaction"] = "create_wallet_rbf_transaction"
+    wallet_ref: ArtifactKey
+    recipient_address_ref: ArtifactKey
+    amount_btc: PositiveBtcAmount
+    initial_fee_rate_sat_vb: Decimal = Field(gt=0, le=10_000, max_digits=16, decimal_places=3)
+    output_transaction_ref: ArtifactKey
+    output_txid_ref: ArtifactKey
+
+
+class BumpFeeStep(ScenarioStepBase):
+    type: Literal["bump_fee"] = "bump_fee"
+    wallet_ref: ArtifactKey
+    txid_ref: ArtifactKey
+    fee_rate_sat_vb: Decimal | None = Field(default=None, gt=0, le=100_000, max_digits=16, decimal_places=3)
+    add_to_observed_fee_rate_sat_vb: Decimal | None = Field(
+        default=None,
+        gt=0,
+        le=100_000,
+        max_digits=16,
+        decimal_places=3,
+    )
+    output_replacement_ref: ArtifactKey
+    output_txid_ref: ArtifactKey | None = None
+
+    @model_validator(mode="after")
+    def fee_strategy_is_explicit(self) -> "BumpFeeStep":
+        configured = [self.fee_rate_sat_vb is not None, self.add_to_observed_fee_rate_sat_vb is not None]
+        if sum(configured) != 1:
+            raise ValueError("A fee bump step requires exactly one explicit fee-rate strategy.")
+        return self
+
+
 class CreatePsbtStep(ScenarioStepBase):
     type: Literal["create_psbt"] = "create_psbt"
     wallet_ref: ArtifactKey
@@ -247,6 +280,8 @@ ScenarioStep = Annotated[
     | CreateSelectedUtxoTransactionStep
     | CreateOverspendTransactionStep
     | SignRawTransactionStep
+    | CreateWalletRbfTransactionStep
+    | BumpFeeStep
     | CreatePsbtStep
     | ProcessPsbtStep
     | FinalizePsbtStep
@@ -304,6 +339,10 @@ class TransactionStateAssertion(AssertionBase):
     ]
 
 
+class RbfSignalingAssertion(AssertionBase):
+    kind: Literal["rbf_signaled"] = "rbf_signaled"
+
+
 class ChildSpendsParentAssertion(AssertionBase):
     kind: Literal["child_spends_parent"] = "child_spends_parent"
     parent_txid_ref: ArtifactKey
@@ -349,6 +388,7 @@ VerificationAssertion = Annotated[
     RpcSucceededAssertion
     | ExpectedFailureAssertion
     | TransactionStateAssertion
+    | RbfSignalingAssertion
     | ChildSpendsParentAssertion
     | PsbtStateAssertion
     | SignatureThresholdAssertion
@@ -376,6 +416,8 @@ MUTATING_STEP_TYPES = frozenset(
         "create_selected_utxo_transaction",
         "create_overspend_transaction",
         "sign_raw_transaction",
+        "create_wallet_rbf_transaction",
+        "bump_fee",
         "create_psbt",
         "process_psbt",
         "finalize_psbt",

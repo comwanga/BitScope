@@ -7,6 +7,7 @@ from app.models.evidence import CapturedEvidence, EvidenceRecord
 from app.models.scenario import (
     CleanupStatus,
     FailureCategory,
+    ScenarioDefinition,
     ScenarioFailure,
     ScenarioRun,
     ScenarioRunState,
@@ -18,14 +19,14 @@ from app.rpc.capabilities import ReadOnlyRpcClient, RpcTransport
 from app.services.evidence_service import EvidenceService
 from app.services.lab_session_store import LabSessionStore
 from app.services.network_safety import NetworkSafetyGuard
+from app.services.rbf_scenario import RBF_REPLACEMENT_SCENARIO
+from app.services.rbf_scenario_service import RbfScenarioService
 from app.services.scenario_artifact_store import ScenarioArtifactStore
 from app.services.scenario_catalog import ScenarioCatalog
+from app.services.scenario_execution import ScenarioExecutionError, ScenarioExecutor
 from app.services.scenario_run_store import ScenarioRunStore
 from app.services.transaction_lifecycle_scenario import TRANSACTION_LIFECYCLE_SCENARIO
-from app.services.transaction_lifecycle_service import (
-    TransactionLifecycleExecutionError,
-    TransactionLifecycleService,
-)
+from app.services.transaction_lifecycle_service import TransactionLifecycleService
 
 
 class ScenarioService:
@@ -45,9 +46,14 @@ class ScenarioService:
         self.catalog = catalog
         self.evidence_service = evidence_service
         self.artifact_store = artifact_store
+        owned_lab_store = lab_store or LabSessionStore(store.database_path)
         self.lifecycle_service = TransactionLifecycleService(
             rpc_client,
-            lab_store or LabSessionStore(store.database_path),
+            owned_lab_store,
+        )
+        self.rbf_service = RbfScenarioService(
+            rpc_client,
+            owned_lab_store,
         )
 
     def create_run(self, scenario_id: str, lab_session_id: str) -> ScenarioRun:
@@ -77,9 +83,11 @@ class ScenarioService:
         self._require_revision(run, expected_revision)
         if run.current_state == ScenarioRunState.READY:
             definition = self.catalog.get_version(run.scenario_id, run.scenario_version)
-            if definition != TRANSACTION_LIFECYCLE_SCENARIO:
-                raise self._execution_not_available(run)
-            return self._execute_transaction_lifecycle(run)
+            if definition == TRANSACTION_LIFECYCLE_SCENARIO:
+                return self._execute_reviewed_scenario(run, definition, self.lifecycle_service)
+            if definition == RBF_REPLACEMENT_SCENARIO:
+                return self._execute_reviewed_scenario(run, definition, self.rbf_service)
+            raise self._execution_not_available(run)
         if run.current_state != ScenarioRunState.CREATED:
             raise self._execution_not_available(run)
 
@@ -149,19 +157,25 @@ class ScenarioService:
             raise
         return ready
 
-    def _execute_transaction_lifecycle(self, ready: ScenarioRun) -> ScenarioRun:
+    def _execute_reviewed_scenario(
+        self,
+        ready: ScenarioRun,
+        definition: ScenarioDefinition,
+        executor: ScenarioExecutor,
+    ) -> ScenarioRun:
         timestamp = datetime.now(UTC)
         running = ready.checkpoint(state=ScenarioRunState.RUNNING, now=timestamp)
         self.store.save(running, expected_revision=ready.revision)
 
         try:
-            execution = self.lifecycle_service.execute(running, TRANSACTION_LIFECYCLE_SCENARIO)
-        except TransactionLifecycleExecutionError as exc:
-            return self._fail_lifecycle_execution(running, exc)
+            execution = executor.execute(running, definition)
+        except ScenarioExecutionError as exc:
+            return self._fail_scenario_execution(running, executor, exc)
         except Exception:
-            return self._fail_lifecycle_execution(
+            return self._fail_scenario_execution(
                 running,
-                TransactionLifecycleExecutionError(
+                executor,
+                ScenarioExecutionError(
                     "prepare_wallet",
                     self._internal_execution_error(),
                 ),
@@ -181,9 +195,10 @@ class ScenarioService:
             self._persist_checkpoint_with_evidence(running, verifying, captured)
         except Exception as exc:
             error = exc if isinstance(exc, BitScopeError) else self._internal_execution_error()
-            return self._fail_lifecycle_execution(
+            return self._fail_scenario_execution(
                 running,
-                TransactionLifecycleExecutionError("export_proof", error),
+                executor,
+                ScenarioExecutionError("export_proof", error),
             )
 
         verification_results = [
@@ -216,11 +231,11 @@ class ScenarioService:
         try:
             self.store.save(cleaning, expected_revision=verifying.revision)
         except Exception:
-            self._best_effort_cleanup(verifying)
+            self._best_effort_cleanup(executor, verifying)
             raise
 
         try:
-            self.lifecycle_service.cleanup(cleaning)
+            executor.cleanup(cleaning)
         except Exception as exc:
             error = exc if isinstance(exc, BitScopeError) else self._internal_cleanup_error()
             return self._finish_cleanup_failure(cleaning, error)
@@ -241,14 +256,15 @@ class ScenarioService:
         self.store.save(verified, expected_revision=cleaning.revision)
         return verified
 
-    def _fail_lifecycle_execution(
+    def _fail_scenario_execution(
         self,
         running: ScenarioRun,
-        execution_error: TransactionLifecycleExecutionError,
+        executor: ScenarioExecutor,
+        execution_error: ScenarioExecutionError,
     ) -> ScenarioRun:
         timestamp = datetime.now(UTC)
         error = execution_error.cause
-        failure_record = self.lifecycle_service.failure_evidence(
+        failure_record = executor.failure_evidence(
             running,
             execution_error.step_id,
             error,
@@ -286,10 +302,10 @@ class ScenarioService:
         try:
             self._persist_checkpoint_with_evidence(running, cleaning, [captured])
         except Exception:
-            self._best_effort_cleanup(running)
+            self._best_effort_cleanup(executor, running)
             raise
         try:
-            self.lifecycle_service.cleanup(cleaning)
+            executor.cleanup(cleaning)
         except Exception as exc:
             cleanup_error = exc if isinstance(exc, BitScopeError) else self._internal_cleanup_error()
             return self._finish_cleanup_failure(cleaning, cleanup_error)
@@ -373,9 +389,10 @@ class ScenarioService:
             return FailureCategory.BITSCOPE_VALIDATION
         return FailureCategory.UNEXPECTED_APPLICATION
 
-    def _best_effort_cleanup(self, run: ScenarioRun) -> None:
+    @staticmethod
+    def _best_effort_cleanup(executor: ScenarioExecutor, run: ScenarioRun) -> None:
         try:
-            self.lifecycle_service.cleanup(run)
+            executor.cleanup(run)
         except Exception:
             pass
 

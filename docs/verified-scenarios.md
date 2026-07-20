@@ -21,4 +21,12 @@ Verified Scenarios are reviewed backend workflows, not user-supplied RPC scripts
 
 The negative path creates a valid serialized transaction spending the second UTXO but makes its output one satoshi larger than its input. Wallet signing must complete, while `testmempoolaccept` must return `allowed=false` and the pinned structured reason `bad-txns-in-belowout`. Any other result fails the scenario and still triggers cleanup.
 
-The deterministic bundle contains node context, setup/UTXO evidence, constructed transaction evidence, mempool evidence, confirmed decoding, the expected rejection, assertions, safe reproduction commands, manifest hashes, and the run report. It is regtest evidence—not a signature, audit, or production-spend approval.
+## RBF replacement reference
+
+`rbf-replacement` version `1.0.0` creates a wallet transaction with `replaceable=true` and an explicit 2 sat/vB fee rate. Verification requires both an input sequence below `0xfffffffe` and Bitcoin Core's live `bip125-replaceable=true` mempool field.
+
+The negative path asks `bumpfee` for the transaction's existing fee rate. On pinned Core 28.1 this must fail with RPC `-8`, and the bounded message classifier requires the `Insufficient total fee`, `oldFee`, and `incrementalFee` markers. A different error does not satisfy the assertion. The recovery path adds 10 sat/vB, requires a distinct replacement txid, proves the original is absent with `getmempoolentry` RPC `-5`, observes the replacement in the mempool, and mines its confirmation.
+
+The proof bundle separates original signaling, the insufficient-fee failure, replacement economics and eviction, and confirmed replacement decoding. RBF remains mempool policy: the evidence describes the tested Core version and node configuration, not a consensus rule or production fee recommendation.
+
+Both deterministic bundles contain node context, scenario evidence, Core output, assertions, safe reproduction commands, manifest hashes, and a run report. They are regtest evidence—not signatures, audits, or production-spend approvals.

@@ -206,6 +206,126 @@ class TransactionService:
             "raw": {"bumpfee": result},
         }
 
+    def create_rbf_transaction(
+        self,
+        wallet_name: str,
+        address: str,
+        amount_btc: float,
+        fee_rate_sat_vb: float,
+    ) -> dict[str, object]:
+        """Create and broadcast an explicitly replaceable wallet transaction on regtest."""
+
+        NetworkSafetyGuard(self.rpc_client).require_regtest()
+        clean_wallet = self._clean(wallet_name, "wallet name")
+        clean_address = self._clean(address, "destination address")
+        clean_amount = self._clean_amount(amount_btc)
+        clean_fee_rate = round(float(fee_rate_sat_vb), 3)
+        if clean_fee_rate <= 0:
+            raise BitScopeError(
+                code="INVALID_RBF_FEE_RATE",
+                message="The initial RBF fee rate must be greater than zero.",
+                status_code=400,
+            )
+
+        preflight = SpendPreflight(self.rpc_client)
+        validation = preflight.validate_address(
+            clean_address,
+            "INVALID_RBF_DESTINATION_ADDRESS",
+            "Provide a fresh destination address from the current regtest node.",
+        )
+        balance = preflight.require_mature_balance(
+            clean_wallet,
+            clean_amount,
+            "RBF_INSUFFICIENT_MATURE_FUNDS",
+            "Mine enough regtest blocks for mature wallet funds before creating the RBF transaction.",
+        )
+        send_parameters: list[object] = [
+            clean_address,
+            clean_amount,
+            "",
+            "",
+            False,
+            True,
+            None,
+            "unset",
+            None,
+            clean_fee_rate,
+        ]
+        txid = self._clean_txid(
+            self._require_str(
+                self.rpc_client.call("sendtoaddress", send_parameters, wallet_name=clean_wallet),
+                "sendtoaddress",
+                "Bitcoin Core did not return the original RBF transaction id.",
+            )
+        )
+        wallet_transaction = self._as_dict(
+            self.rpc_client.call("gettransaction", [txid], wallet_name=clean_wallet)
+        )
+        transaction_hex = self._require_str(
+            wallet_transaction.get("hex"),
+            "gettransaction",
+            "Bitcoin Core did not return the original RBF transaction serialization.",
+        )
+        decoded = self._as_dict(self.rpc_client.call("decoderawtransaction", [transaction_hex]))
+        mempool_entry = self._as_dict(self.rpc_client.call("getmempoolentry", [txid]))
+        inputs = decoded.get("vin") if isinstance(decoded.get("vin"), list) else []
+        sequences = [
+            item["sequence"]
+            for item in inputs
+            if isinstance(item, dict)
+            and isinstance(item.get("sequence"), int)
+            and not isinstance(item.get("sequence"), bool)
+        ]
+        fees = mempool_entry.get("fees") if isinstance(mempool_entry.get("fees"), dict) else {}
+        fee_btc = self._optional_float(fees.get("base") if isinstance(fees, dict) else None)
+        vsize = self._optional_int(mempool_entry.get("vsize"))
+
+        return {
+            "wallet_name": clean_wallet,
+            "address": clean_address,
+            "amount_btc": clean_amount,
+            "requested_fee_rate_sat_vb": clean_fee_rate,
+            "txid": txid,
+            "hex": transaction_hex,
+            "sequences": sequences,
+            "signals_rbf": any(sequence < 0xFFFFFFFE for sequence in sequences),
+            "mempool_entry": mempool_entry,
+            "fee_btc": fee_btc,
+            "vsize": vsize,
+            "fee_rate_sat_vb": self._sat_vb(fee_btc, vsize),
+            "cli_commands": [
+                f"bitcoin-cli validateaddress {clean_address}",
+                f"bitcoin-cli -rpcwallet={clean_wallet} getbalances",
+                (
+                    f"bitcoin-cli -rpcwallet={clean_wallet} sendtoaddress {clean_address} "
+                    f"{clean_amount:.8f} '' '' false true null unset null {clean_fee_rate:.3f}"
+                ),
+                f"bitcoin-cli -rpcwallet={clean_wallet} gettransaction {txid}",
+                f"bitcoin-cli getmempoolentry {txid}",
+            ],
+            "rpc_methods": [
+                "validateaddress",
+                "getbalances",
+                "sendtoaddress",
+                "gettransaction",
+                "decoderawtransaction",
+                "getmempoolentry",
+            ],
+            "concepts": ["RBF", "BIP125", "Sequence", "Mempool policy", "Fee rate"],
+            "explanation": (
+                "Bitcoin Core created and broadcast a wallet transaction with replaceable=true and an explicit "
+                "initial fee rate. BitScope verifies both the input sequences and live mempool replaceability field."
+            ),
+            "raw": {
+                "validateaddress": validation,
+                "getbalances": balance["getbalances"],
+                "sendtoaddress": txid,
+                "gettransaction": wallet_transaction,
+                "decoderawtransaction": decoded,
+                "getmempoolentry": mempool_entry,
+            },
+        }
+
     def create_cpfp_child(
         self,
         wallet_name: str,

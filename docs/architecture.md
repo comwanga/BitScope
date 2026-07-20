@@ -95,6 +95,8 @@ Services keep Bitcoin-specific behavior out of route handlers:
 
 Scenario runs are stored transactionally beside their owning lab sessions. Their identity fields and recorded histories are append-only, state changes use explicit transitions and revision checks, and reset creates a new run rather than rewriting the old run. Runs that may own resources cannot be reset or deleted until cleanup is recorded as complete.
 
+Preparing a run reuses the live network-safety check and atomically moves `created` to `ready` with a redacted `node.context` artifact. The artifact records the Core-reported chain, version, block height, BitScope interpretation, and credential-free reproduction commands; it does not claim that later scenario steps have executed.
+
 ## API Surface
 
 All routes are prefixed with `/api`.

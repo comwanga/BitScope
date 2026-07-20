@@ -41,6 +41,10 @@ class NetworkSafetyGuard:
         self.rpc_client = rpc_client
 
     def get_context(self) -> ChainContext:
+        context, _ = self.get_context_with_info()
+        return context
+
+    def get_context_with_info(self) -> tuple[ChainContext, dict[str, object]]:
         info = self.rpc_client.call("getblockchaininfo")
         if not isinstance(info, dict):
             raise self._invalid_chain_response()
@@ -65,10 +69,14 @@ class NetworkSafetyGuard:
                     "runtime_chain": context.runtime_chain,
                 },
             )
-        return context
+        return context, info
 
     def require_regtest(self) -> ChainContext:
-        context = self.get_context()
+        context, _ = self.require_regtest_with_info()
+        return context
+
+    def require_regtest_with_info(self) -> tuple[ChainContext, dict[str, object]]:
+        context, info = self.get_context_with_info()
         if context.runtime_chain != "regtest":
             raise BitScopeError(
                 code="REGTEST_ONLY",
@@ -80,7 +88,7 @@ class NetworkSafetyGuard:
                     "runtime_chain": context.runtime_chain,
                 },
             )
-        return context
+        return context, info
 
     def require_read_only_network(self) -> ChainContext:
         return self.get_context()

@@ -8,8 +8,11 @@ from app.config import Settings, get_settings
 from app.errors import BitScopeError
 from app.main import create_app
 from app.models.lab import LabSession
-from app.models.scenario import ScenarioDefinition, ScenarioRunState
+from app.models.scenario import ScenarioDefinition, ScenarioRun, ScenarioRunState
 from app.services.lab_session_store import LabSessionStore
+from app.services.evidence_service import EvidenceService
+from app.services.proof_bundle_service import ProofBundleService
+from app.services.scenario_artifact_store import ScenarioArtifactStore
 from app.services.scenario_catalog import RegisteredScenario, ScenarioCatalog
 from app.services.scenario_run_store import ScenarioRunStore
 from app.services.scenario_service import ScenarioService
@@ -20,9 +23,15 @@ NOW = datetime(2026, 7, 20, 15, 0, tzinfo=UTC)
 
 
 class FakeRpcClient:
-    def __init__(self, chain: str = "regtest") -> None:
-        self.settings = Settings(bitcoin_network="regtest")
+    def __init__(self, chain: str = "regtest", block_count: object = 200) -> None:
+        self.settings = Settings(
+            bitcoin_network="regtest",
+            bitcoin_rpc_user="readiness-user",
+            bitcoin_rpc_password="readiness-secret",
+            bitscope_local_access_token="readiness-token",
+        )
         self.chain = chain
+        self.block_count = block_count
         self.calls: list[str] = []
 
     def call(self, method: str, params: object = None, wallet_name: str | None = None) -> object:
@@ -30,7 +39,13 @@ class FakeRpcClient:
         if method == "getblockchaininfo":
             return {"chain": self.chain}
         if method == "getnetworkinfo":
-            return {"version": 280100, "subversion": "/Satoshi:28.1.0/"}
+            return {
+                "version": 280100,
+                "subversion": "/Satoshi:28.1.0/",
+                "warnings": "Test canary readiness-secret must be redacted.",
+            }
+        if method == "getblockcount":
+            return self.block_count
         raise AssertionError(f"Unexpected RPC method: {method}")
 
 
@@ -135,7 +150,9 @@ def build_service(database: Path, rpc: FakeRpcClient | None = None) -> tuple[Sce
     save_lab(database)
     store = ScenarioRunStore(str(database))
     catalog = ScenarioCatalog((RegisteredScenario(scenario_definition()),))
-    return ScenarioService(rpc or FakeRpcClient(), store, catalog), store
+    client = rpc or FakeRpcClient()
+    artifacts = ScenarioArtifactStore(str(database.parent / "scenario-artifacts"))
+    return ScenarioService(client, store, catalog, EvidenceService.from_settings(client.settings), artifacts), store
 
 
 def test_catalog_is_sorted_and_reports_availability() -> None:
@@ -187,7 +204,7 @@ def test_create_run_fails_closed_when_runtime_is_not_regtest(tmp_path: Path) -> 
 
 
 def test_advance_is_owned_revisioned_and_limited_to_preparation(tmp_path: Path) -> None:
-    service, _ = build_service(tmp_path / "labs.sqlite3")
+    service, store = build_service(tmp_path / "labs.sqlite3")
     run = service.create_run("transaction-lifecycle", "session_alpha")
 
     with pytest.raises(BitScopeError) as hidden:
@@ -201,10 +218,55 @@ def test_advance_is_owned_revisioned_and_limited_to_preparation(tmp_path: Path) 
     ready = service.advance(run.run_id, "session_alpha", expected_revision=0)
     assert ready.current_state == ScenarioRunState.READY
     assert ready.revision == 1
+    assert [reference.evidence_id for reference in ready.evidence] == ["node.context"]
+    assert ready.evidence[0].relative_path == "evidence/node.context.json"
+
+    proof = ProofBundleService(store, service.artifact_store, service.catalog).bundle(
+        run.run_id,
+        "session_alpha",
+    )
+    assert "node-context.json" in proof.files
+    assert "commands.sh" in proof.files
+    assert proof.manifest.generated_from_revision == 1
+    assert all(b"readiness-secret" not in content for content in proof.files.values())
 
     with pytest.raises(BitScopeError) as unavailable:
         service.advance(run.run_id, "session_alpha", expected_revision=1)
     assert unavailable.value.code == "SCENARIO_EXECUTION_NOT_AVAILABLE"
+
+
+def test_advance_fails_closed_without_persisting_invalid_readiness_evidence(tmp_path: Path) -> None:
+    service, store = build_service(tmp_path / "labs.sqlite3", FakeRpcClient(block_count=-1))
+    run = service.create_run("transaction-lifecycle", "session_alpha")
+
+    with pytest.raises(BitScopeError) as invalid:
+        service.advance(run.run_id, "session_alpha", expected_revision=0)
+
+    assert invalid.value.code == "BITCOIN_CORE_INVALID_RESPONSE"
+    assert store.get(run.run_id) == run
+    target = service.artifact_store.root / str(run.run_id) / "evidence" / "node.context.json"
+    assert not target.exists()
+
+
+def test_advance_removes_new_artifact_when_run_commit_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    service, store = build_service(tmp_path / "labs.sqlite3")
+    run = service.create_run("transaction-lifecycle", "session_alpha")
+
+    def reject_save(_: ScenarioRun, expected_revision: int) -> None:
+        raise BitScopeError(
+            "SCENARIO_RUN_REVISION_CONFLICT",
+            "Injected optimistic revision conflict.",
+            409,
+            {"expected_revision": expected_revision},
+        )
+
+    monkeypatch.setattr(store, "save", reject_save)
+    with pytest.raises(BitScopeError) as conflict:
+        service.advance(run.run_id, "session_alpha", expected_revision=0)
+
+    assert conflict.value.code == "SCENARIO_RUN_REVISION_CONFLICT"
+    target = service.artifact_store.root / str(run.run_id) / "evidence" / "node.context.json"
+    assert not target.exists()
 
 
 def test_reset_creates_a_new_run_without_rewriting_history(tmp_path: Path) -> None:
@@ -303,6 +365,7 @@ def test_phase_one_routes_expose_catalogue_and_protect_run_mutations(tmp_path: P
     )
     assert deleted.status_code == 200
     assert deleted.json() == {"run_id": run_id, "deleted": True}
+    assert not (service.artifact_store.root / run_id).exists()
 
     reset_source = client.post(
         "/api/scenarios/transaction-lifecycle/runs",

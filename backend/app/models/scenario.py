@@ -875,7 +875,12 @@ class ScenarioRun(StrictScenarioModel):
             raise ValueError("A cleanup-failed run requires failed cleanup status.")
         return self
 
-    def transition_to(self, state: ScenarioRunState, now: datetime | None = None) -> "ScenarioRun":
+    def transition_to(
+        self,
+        state: ScenarioRunState,
+        now: datetime | None = None,
+        evidence_reference: EvidenceReference | None = None,
+    ) -> "ScenarioRun":
         allowed = self.ALLOWED_TRANSITIONS.get(self.current_state, frozenset())
         if state not in allowed:
             raise ValueError(f"Invalid scenario run transition: {self.current_state.value} -> {state.value}.")
@@ -885,6 +890,10 @@ class ScenarioRun(StrictScenarioModel):
         data["current_state"] = state
         data["updated_at"] = timestamp
         data["revision"] = self.revision + 1
+        if evidence_reference is not None:
+            if any(existing.evidence_id == evidence_reference.evidence_id for existing in self.evidence):
+                raise ValueError(f"Evidence {evidence_reference.evidence_id} has already been recorded.")
+            data["evidence"].append(evidence_reference.model_dump(mode="python"))
         if state in TERMINAL_RUN_STATES:
             data["final_result"] = ScenarioFinalResult(state.value)
             data["completed_at"] = timestamp

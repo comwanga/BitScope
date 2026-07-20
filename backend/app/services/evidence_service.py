@@ -254,6 +254,14 @@ class ScenarioEvidenceRecorder:
             )
 
         captured = self.evidence_service.capture(run, record)
-        self.artifact_store.write_evidence(captured)
-        self.run_store.save(captured.run, expected_revision=expected_revision)
+        created = self.artifact_store.write_evidence(captured)
+        try:
+            self.run_store.save(captured.run, expected_revision=expected_revision)
+        except Exception:
+            if created:
+                try:
+                    self.artifact_store.delete_evidence(captured)
+                except (BitScopeError, OSError):
+                    pass
+            raise
         return captured

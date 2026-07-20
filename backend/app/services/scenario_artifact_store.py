@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from hashlib import sha256
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -20,7 +21,7 @@ class ScenarioArtifactStore:
         self.root = Path(artifact_root).resolve()
         self.max_evidence_bytes = max_evidence_bytes
 
-    def write_evidence(self, captured: CapturedEvidence) -> None:
+    def write_evidence(self, captured: CapturedEvidence) -> bool:
         reference = captured.reference
         expected_path = self._expected_evidence_path(reference)
         if reference.relative_path != expected_path:
@@ -38,7 +39,7 @@ class ScenarioArtifactStore:
         if target.exists():
             existing = self._read_bounded(target, reference.evidence_id)
             if existing == content:
-                return
+                return False
             raise BitScopeError(
                 code="EVIDENCE_ARTIFACT_CONFLICT",
                 message="An evidence artifact with this identifier already contains different content.",
@@ -47,6 +48,7 @@ class ScenarioArtifactStore:
             )
 
         temporary_name: str | None = None
+        created = False
         try:
             with NamedTemporaryFile("wb", dir=target.parent, delete=False) as temporary:
                 temporary.write(content)
@@ -55,6 +57,7 @@ class ScenarioArtifactStore:
                 temporary_name = temporary.name
             try:
                 os.link(temporary_name, target)
+                created = True
             except FileExistsError:
                 existing = self._read_bounded(target, reference.evidence_id)
                 if existing != content:
@@ -67,6 +70,35 @@ class ScenarioArtifactStore:
         finally:
             if temporary_name is not None:
                 Path(temporary_name).unlink(missing_ok=True)
+        return created
+
+    def delete_evidence(self, captured: CapturedEvidence) -> None:
+        """Remove only the exact artifact created for a failed metadata commit."""
+
+        reference = captured.reference
+        expected_path = self._expected_evidence_path(reference)
+        if reference.relative_path != expected_path:
+            raise BitScopeError(
+                code="EVIDENCE_ARTIFACT_PATH_INVALID",
+                message="Refusing to delete an evidence artifact outside its server-generated path.",
+                status_code=409,
+                details={"evidence_id": reference.evidence_id},
+            )
+        target = self._resolve_run_path(captured.run, expected_path)
+        if not target.exists():
+            return
+        content = self._read_bounded(target, reference.evidence_id)
+        self._validate_content(reference, content)
+        target.unlink()
+
+    def delete_run(self, run: ScenarioRun) -> None:
+        """Delete only the validated artifact directory owned by one confirmed run."""
+
+        run_root = (self.root / str(run.run_id)).resolve()
+        if self.root not in run_root.parents:
+            raise self._unsafe_path(run, ".")
+        if run_root.exists():
+            shutil.rmtree(run_root)
 
     def read_evidence(self, run: ScenarioRun, reference: EvidenceReference) -> EvidenceRecord:
         expected_path = self._expected_evidence_path(reference)

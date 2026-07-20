@@ -19,7 +19,7 @@ from app.models.proof import ScenarioEvidenceResponse
 from app.rpc.client import BitcoinRpcClient
 from app.security import require_mutation_access
 from app.services.scenario_catalog import DEFAULT_SCENARIO_CATALOG, ScenarioCatalog
-from app.services.evidence_service import EvidenceRedactor
+from app.services.evidence_service import EvidenceRedactor, EvidenceService
 from app.services.proof_bundle_service import ProofBundleService
 from app.services.scenario_artifact_store import ScenarioArtifactStore
 from app.services.scenario_run_store import ScenarioRunStore
@@ -38,9 +38,16 @@ def get_scenario_service(
     catalog: ScenarioCatalog = Depends(get_scenario_catalog),
 ) -> Iterator[ScenarioService]:
     client = BitcoinRpcClient()
-    store = ScenarioRunStore(get_settings().lab_session_database_path)
+    settings = get_settings()
+    store = ScenarioRunStore(settings.lab_session_database_path)
     with client:
-        yield ScenarioService(client, store, catalog)
+        yield ScenarioService(
+            client,
+            store,
+            catalog,
+            EvidenceService.from_settings(settings),
+            ScenarioArtifactStore(settings.scenario_artifact_root),
+        )
 
 
 def get_proof_bundle_service(

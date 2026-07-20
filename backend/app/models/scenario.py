@@ -108,6 +108,31 @@ class CreateRawTransactionStep(ScenarioStepBase):
     output_transaction_ref: ArtifactKey
 
 
+class CreateSelectedUtxoTransactionStep(ScenarioStepBase):
+    type: Literal["create_selected_utxo_transaction"] = "create_selected_utxo_transaction"
+    utxos_ref: ArtifactKey
+    selected_index: int = Field(default=0, ge=0, le=31)
+    recipient_address_ref: ArtifactKey
+    fee_sats: int = Field(ge=1, le=10_000_000)
+    output_transaction_ref: ArtifactKey
+
+
+class CreateOverspendTransactionStep(ScenarioStepBase):
+    type: Literal["create_overspend_transaction"] = "create_overspend_transaction"
+    utxos_ref: ArtifactKey
+    selected_index: int = Field(ge=0, le=31)
+    recipient_address_ref: ArtifactKey
+    excess_sats: int = Field(default=1, ge=1, le=100_000)
+    output_transaction_ref: ArtifactKey
+
+
+class SignRawTransactionStep(ScenarioStepBase):
+    type: Literal["sign_raw_transaction"] = "sign_raw_transaction"
+    wallet_ref: ArtifactKey
+    transaction_ref: ArtifactKey
+    output_transaction_ref: ArtifactKey
+
+
 class CreatePsbtStep(ScenarioStepBase):
     type: Literal["create_psbt"] = "create_psbt"
     wallet_ref: ArtifactKey
@@ -219,6 +244,9 @@ ScenarioStep = Annotated[
     | MineBlocksStep
     | SelectUtxosStep
     | CreateRawTransactionStep
+    | CreateSelectedUtxoTransactionStep
+    | CreateOverspendTransactionStep
+    | SignRawTransactionStep
     | CreatePsbtStep
     | ProcessPsbtStep
     | FinalizePsbtStep
@@ -345,6 +373,9 @@ MUTATING_STEP_TYPES = frozenset(
         "generate_address",
         "mine_blocks",
         "create_raw_transaction",
+        "create_selected_utxo_transaction",
+        "create_overspend_transaction",
+        "sign_raw_transaction",
         "create_psbt",
         "process_psbt",
         "finalize_psbt",
@@ -896,6 +927,71 @@ class ScenarioRun(StrictScenarioModel):
             data["evidence"].append(evidence_reference.model_dump(mode="python"))
         if state in TERMINAL_RUN_STATES:
             data["final_result"] = ScenarioFinalResult(state.value)
+            data["completed_at"] = timestamp
+        return ScenarioRun.model_validate(data)
+
+    def checkpoint(
+        self,
+        *,
+        state: ScenarioRunState | None = None,
+        step_results: list[ScenarioStepResult] | None = None,
+        assertion_results: list[AssertionResult] | None = None,
+        evidence_references: list[EvidenceReference] | None = None,
+        cleanup_status: CleanupStatus | None = None,
+        now: datetime | None = None,
+    ) -> "ScenarioRun":
+        """Commit one append-only execution checkpoint and one state transition."""
+
+        target_state = state or self.current_state
+        if target_state != self.current_state:
+            allowed = self.ALLOWED_TRANSITIONS.get(self.current_state, frozenset())
+            if target_state not in allowed:
+                raise ValueError(
+                    f"Invalid scenario run transition: {self.current_state.value} -> {target_state.value}."
+                )
+
+        data = self.model_dump(mode="python")
+        known_evidence = {reference.evidence_id for reference in self.evidence}
+        for reference in evidence_references or []:
+            if reference.evidence_id in known_evidence:
+                raise ValueError(f"Evidence {reference.evidence_id} has already been recorded.")
+            known_evidence.add(reference.evidence_id)
+            data["evidence"].append(reference.model_dump(mode="python"))
+
+        known_steps = {result.step_id for result in self.step_results}
+        for result in step_results or []:
+            if result.step_id in known_steps:
+                raise ValueError(f"Scenario step {result.step_id} has already been recorded.")
+            known_steps.add(result.step_id)
+            data["step_results"].append(result.model_dump(mode="python"))
+            if result.status in {
+                ScenarioStepResultStatus.COMPLETED,
+                ScenarioStepResultStatus.EXPECTED_FAILURE,
+            }:
+                data["completed_steps"].append(result.step_id)
+            elif result.status == ScenarioStepResultStatus.UNEXPECTED_FAILURE:
+                data["failed_steps"].append(result.step_id)
+            else:
+                data["skipped_steps"].append(result.step_id)
+            if result.failure is not None:
+                target = "expected_failures" if result.failure.expected else "unexpected_failures"
+                data[target].append(result.failure.model_dump(mode="python"))
+
+        known_assertions = {result.assertion_id for result in self.assertion_results}
+        for result in assertion_results or []:
+            if result.assertion_id in known_assertions:
+                raise ValueError(f"Assertion {result.assertion_id} has already been recorded.")
+            known_assertions.add(result.assertion_id)
+            data["assertion_results"].append(result.model_dump(mode="python"))
+
+        timestamp = now or datetime.now(UTC)
+        data["current_state"] = target_state
+        data["current_step_id"] = data["step_results"][-1]["step_id"] if data["step_results"] else None
+        data["cleanup_status"] = cleanup_status or self.cleanup_status
+        data["updated_at"] = timestamp
+        data["revision"] = self.revision + 1
+        if target_state in TERMINAL_RUN_STATES:
+            data["final_result"] = ScenarioFinalResult(target_state.value)
             data["completed_at"] = timestamp
         return ScenarioRun.model_validate(data)
 

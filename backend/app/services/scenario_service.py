@@ -3,14 +3,29 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from app.errors import BitScopeError
-from app.models.evidence import EvidenceRecord
-from app.models.scenario import CleanupStatus, ScenarioRun, ScenarioRunState, TERMINAL_RUN_STATES
+from app.models.evidence import CapturedEvidence, EvidenceRecord
+from app.models.scenario import (
+    CleanupStatus,
+    FailureCategory,
+    ScenarioFailure,
+    ScenarioRun,
+    ScenarioRunState,
+    ScenarioStepResult,
+    ScenarioStepResultStatus,
+    TERMINAL_RUN_STATES,
+)
 from app.rpc.capabilities import ReadOnlyRpcClient, RpcTransport
 from app.services.evidence_service import EvidenceService
+from app.services.lab_session_store import LabSessionStore
 from app.services.network_safety import NetworkSafetyGuard
 from app.services.scenario_artifact_store import ScenarioArtifactStore
 from app.services.scenario_catalog import ScenarioCatalog
 from app.services.scenario_run_store import ScenarioRunStore
+from app.services.transaction_lifecycle_scenario import TRANSACTION_LIFECYCLE_SCENARIO
+from app.services.transaction_lifecycle_service import (
+    TransactionLifecycleExecutionError,
+    TransactionLifecycleService,
+)
 
 
 class ScenarioService:
@@ -23,12 +38,17 @@ class ScenarioService:
         catalog: ScenarioCatalog,
         evidence_service: EvidenceService,
         artifact_store: ScenarioArtifactStore,
+        lab_store: LabSessionStore | None = None,
     ) -> None:
         self.rpc = ReadOnlyRpcClient(rpc_client)
         self.store = store
         self.catalog = catalog
         self.evidence_service = evidence_service
         self.artifact_store = artifact_store
+        self.lifecycle_service = TransactionLifecycleService(
+            rpc_client,
+            lab_store or LabSessionStore(store.database_path),
+        )
 
     def create_run(self, scenario_id: str, lab_session_id: str) -> ScenarioRun:
         definition = self.catalog.require_available(scenario_id)
@@ -55,13 +75,13 @@ class ScenarioService:
     def advance(self, run_id: UUID, lab_session_id: str, expected_revision: int) -> ScenarioRun:
         run = self.get_run(run_id, lab_session_id)
         self._require_revision(run, expected_revision)
+        if run.current_state == ScenarioRunState.READY:
+            definition = self.catalog.get_version(run.scenario_id, run.scenario_version)
+            if definition != TRANSACTION_LIFECYCLE_SCENARIO:
+                raise self._execution_not_available(run)
+            return self._execute_transaction_lifecycle(run)
         if run.current_state != ScenarioRunState.CREATED:
-            raise BitScopeError(
-                code="SCENARIO_EXECUTION_NOT_AVAILABLE",
-                message="Scenario step execution is not available in Phase 1.",
-                status_code=409,
-                details={"run_id": str(run_id), "state": run.current_state.value},
-            )
+            raise self._execution_not_available(run)
 
         definition = self.catalog.get_version(run.scenario_id, run.scenario_version)
         context, blockchain_info = NetworkSafetyGuard(self.rpc).require_regtest_with_info()
@@ -128,6 +148,261 @@ class ScenarioService:
                     pass
             raise
         return ready
+
+    def _execute_transaction_lifecycle(self, ready: ScenarioRun) -> ScenarioRun:
+        timestamp = datetime.now(UTC)
+        running = ready.checkpoint(state=ScenarioRunState.RUNNING, now=timestamp)
+        self.store.save(running, expected_revision=ready.revision)
+
+        try:
+            execution = self.lifecycle_service.execute(running, TRANSACTION_LIFECYCLE_SCENARIO)
+        except TransactionLifecycleExecutionError as exc:
+            return self._fail_lifecycle_execution(running, exc)
+        except Exception:
+            return self._fail_lifecycle_execution(
+                running,
+                TransactionLifecycleExecutionError(
+                    "prepare_wallet",
+                    self._internal_execution_error(),
+                ),
+            )
+
+        try:
+            captured = [
+                self.evidence_service.capture(running, record)
+                for record in execution.evidence_records
+            ]
+            verifying = running.checkpoint(
+                state=ScenarioRunState.VERIFYING,
+                step_results=execution.step_results,
+                evidence_references=[item.reference for item in captured],
+                now=timestamp,
+            )
+            self._persist_checkpoint_with_evidence(running, verifying, captured)
+        except Exception as exc:
+            error = exc if isinstance(exc, BitScopeError) else self._internal_execution_error()
+            return self._fail_lifecycle_execution(
+                running,
+                TransactionLifecycleExecutionError("export_proof", error),
+            )
+
+        verification_results = [
+            ScenarioStepResult(
+                step_id="verify_results",
+                status=ScenarioStepResultStatus.COMPLETED,
+                started_at=timestamp,
+                completed_at=timestamp,
+                evidence_ids=[
+                    reference.evidence_id
+                    for reference in verifying.evidence
+                    if reference.evidence_id != "node.context"
+                ],
+            ),
+            ScenarioStepResult(
+                step_id="export_proof",
+                status=ScenarioStepResultStatus.COMPLETED,
+                started_at=timestamp,
+                completed_at=timestamp,
+                output_refs=["proof.bundle"],
+            ),
+        ]
+        cleaning = verifying.checkpoint(
+            state=ScenarioRunState.CLEANING,
+            step_results=verification_results,
+            assertion_results=execution.assertion_results,
+            cleanup_status=CleanupStatus.IN_PROGRESS,
+            now=datetime.now(UTC),
+        )
+        try:
+            self.store.save(cleaning, expected_revision=verifying.revision)
+        except Exception:
+            self._best_effort_cleanup(verifying)
+            raise
+
+        try:
+            self.lifecycle_service.cleanup(cleaning)
+        except Exception as exc:
+            error = exc if isinstance(exc, BitScopeError) else self._internal_cleanup_error()
+            return self._finish_cleanup_failure(cleaning, error)
+
+        completed_at = datetime.now(UTC)
+        cleanup_result = ScenarioStepResult(
+            step_id="cleanup",
+            status=ScenarioStepResultStatus.COMPLETED,
+            started_at=completed_at,
+            completed_at=completed_at,
+        )
+        verified = cleaning.checkpoint(
+            state=ScenarioRunState.VERIFIED,
+            step_results=[cleanup_result],
+            cleanup_status=CleanupStatus.COMPLETED,
+            now=completed_at,
+        )
+        self.store.save(verified, expected_revision=cleaning.revision)
+        return verified
+
+    def _fail_lifecycle_execution(
+        self,
+        running: ScenarioRun,
+        execution_error: TransactionLifecycleExecutionError,
+    ) -> ScenarioRun:
+        timestamp = datetime.now(UTC)
+        error = execution_error.cause
+        failure_record = self.lifecycle_service.failure_evidence(
+            running,
+            execution_error.step_id,
+            error,
+            timestamp,
+        )
+        captured = self.evidence_service.capture(running, failure_record)
+        safe_message = self.evidence_service.redactor.redact(
+            error.details.get("rpc_message") if isinstance(error.details.get("rpc_message"), str) else error.message
+        )
+        failure = ScenarioFailure(
+            failure_id=f"failure.{execution_error.step_id}",
+            step_id=execution_error.step_id,
+            category=self._failure_category(error),
+            expected=False,
+            code=error.code,
+            safe_message=str(safe_message)[:2_000],
+            rpc_code=error.details.get("rpc_code") if isinstance(error.details.get("rpc_code"), int) else None,
+            evidence_ids=[captured.reference.evidence_id],
+        )
+        failed_step = ScenarioStepResult(
+            step_id=execution_error.step_id,
+            status=ScenarioStepResultStatus.UNEXPECTED_FAILURE,
+            started_at=timestamp,
+            completed_at=timestamp,
+            evidence_ids=[captured.reference.evidence_id],
+            failure=failure,
+        )
+        cleaning = running.checkpoint(
+            state=ScenarioRunState.CLEANING,
+            step_results=[failed_step],
+            evidence_references=[captured.reference],
+            cleanup_status=CleanupStatus.IN_PROGRESS,
+            now=timestamp,
+        )
+        try:
+            self._persist_checkpoint_with_evidence(running, cleaning, [captured])
+        except Exception:
+            self._best_effort_cleanup(running)
+            raise
+        try:
+            self.lifecycle_service.cleanup(cleaning)
+        except Exception as exc:
+            cleanup_error = exc if isinstance(exc, BitScopeError) else self._internal_cleanup_error()
+            return self._finish_cleanup_failure(cleaning, cleanup_error)
+
+        completed_at = datetime.now(UTC)
+        cleanup_result = ScenarioStepResult(
+            step_id="cleanup",
+            status=ScenarioStepResultStatus.COMPLETED,
+            started_at=completed_at,
+            completed_at=completed_at,
+        )
+        failed = cleaning.checkpoint(
+            state=ScenarioRunState.FAILED,
+            step_results=[cleanup_result],
+            cleanup_status=CleanupStatus.COMPLETED,
+            now=completed_at,
+        )
+        self.store.save(failed, expected_revision=cleaning.revision)
+        return failed
+
+    def _finish_cleanup_failure(self, cleaning: ScenarioRun, error: BitScopeError) -> ScenarioRun:
+        timestamp = datetime.now(UTC)
+        safe_message = self.evidence_service.redactor.redact(
+            error.details.get("rpc_message") if isinstance(error.details.get("rpc_message"), str) else error.message
+        )
+        failure = ScenarioFailure(
+            failure_id="failure.cleanup",
+            step_id="cleanup",
+            category=self._failure_category(error),
+            expected=False,
+            code=error.code,
+            safe_message=str(safe_message)[:2_000],
+            rpc_code=error.details.get("rpc_code") if isinstance(error.details.get("rpc_code"), int) else None,
+        )
+        cleanup_result = ScenarioStepResult(
+            step_id="cleanup",
+            status=ScenarioStepResultStatus.UNEXPECTED_FAILURE,
+            started_at=timestamp,
+            completed_at=timestamp,
+            failure=failure,
+        )
+        failed = cleaning.checkpoint(
+            state=ScenarioRunState.CLEANUP_FAILED,
+            step_results=[cleanup_result],
+            cleanup_status=CleanupStatus.FAILED,
+            now=timestamp,
+        )
+        self.store.save(failed, expected_revision=cleaning.revision)
+        return failed
+
+    def _persist_checkpoint_with_evidence(
+        self,
+        previous: ScenarioRun,
+        checkpoint: ScenarioRun,
+        captured: list[CapturedEvidence],
+    ) -> None:
+        persisted = [replace(item, run=checkpoint) for item in captured]
+        created: list[CapturedEvidence] = []
+        try:
+            for item in persisted:
+                if self.artifact_store.write_evidence(item):
+                    created.append(item)
+            self.store.save(checkpoint, expected_revision=previous.revision)
+        except Exception:
+            for item in created:
+                try:
+                    self.artifact_store.delete_evidence(item)
+                except (BitScopeError, OSError):
+                    pass
+            raise
+
+    @staticmethod
+    def _failure_category(error: BitScopeError) -> FailureCategory:
+        if error.code in {"BITCOIN_NETWORK_MISMATCH", "REGTEST_ONLY", "BITCOIN_CHAIN_UNVERIFIED"}:
+            return FailureCategory.RUNTIME_NETWORK_SAFETY
+        if error.code in {"INVALID_RPC_PARAMETER", "RPC_CAPABILITY_VIOLATION"}:
+            return FailureCategory.RPC_PARAMETER
+        if error.code in {"TRANSACTION_REJECTED", "TRANSACTION_REJECTED_BY_POLICY"}:
+            return FailureCategory.MEMPOOL_POLICY
+        if error.code.startswith("SCENARIO_") or error.code.startswith("LAB_"):
+            return FailureCategory.BITSCOPE_VALIDATION
+        return FailureCategory.UNEXPECTED_APPLICATION
+
+    def _best_effort_cleanup(self, run: ScenarioRun) -> None:
+        try:
+            self.lifecycle_service.cleanup(run)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _internal_execution_error() -> BitScopeError:
+        return BitScopeError(
+            code="SCENARIO_EXECUTION_INTERNAL_ERROR",
+            message="The transaction lifecycle stopped because of an unexpected internal error.",
+            status_code=500,
+        )
+
+    @staticmethod
+    def _internal_cleanup_error() -> BitScopeError:
+        return BitScopeError(
+            code="SCENARIO_CLEANUP_INTERNAL_ERROR",
+            message="The transaction lifecycle could not complete isolated-wallet cleanup.",
+            status_code=500,
+        )
+
+    @staticmethod
+    def _execution_not_available(run: ScenarioRun) -> BitScopeError:
+        return BitScopeError(
+            code="SCENARIO_EXECUTION_NOT_AVAILABLE",
+            message="No reviewed executor is available for this scenario state and version.",
+            status_code=409,
+            details={"run_id": str(run.run_id), "state": run.current_state.value},
+        )
 
     def reset(self, run_id: UUID, lab_session_id: str, expected_revision: int) -> ScenarioRun:
         previous = self.get_run(run_id, lab_session_id)

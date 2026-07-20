@@ -386,6 +386,10 @@ Do not assume the flagship three-branch policy is supported. Implement the prove
 ### Phase 3 - Foundational scenarios
 
 - [ ] Implement transaction lifecycle, RBF, multisig PSBT, and one real timelock scenario.
+  - [x] Transaction lifecycle: confirmed positive path, pinned overspend rejection, deterministic evidence, and verified cleanup.
+  - [ ] RBF replacement.
+  - [ ] Multisig PSBT.
+  - [ ] One real timelock spend.
 - [ ] Add CPFP and OP_RETURN only after the mandatory four are complete or in parallel without weakening them.
 - [ ] Give every scenario a meaningful proved negative path, live test, evidence, and cleanup.
 

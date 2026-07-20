@@ -36,6 +36,8 @@ The live fixtures and session tests must:
 
 The pinned integration job currently enables Bitcoin Core 28.1's `create_bdb` compatibility because the multisig lesson exercises `addmultisigaddress`. This is an explicit compatibility constraint, not a recommendation for new wallet designs.
 
+The verified transaction-lifecycle test mines its 102 maturity blocks in bounded batches so each RPC stays within the normal request timeout. It selects two distinct mature outputs: one follows preflight, broadcast, mempool, confirmation, and decode; the other signs a one-satoshi overspend that pinned Core 28.1 rejects as `bad-txns-in-belowout`.
+
 ## Common Failures
 
 ### Insufficient or Immature Funds
@@ -64,3 +66,4 @@ Before adding a live-node test:
 4. Assert observable results rather than fixed txids, addresses, or block hashes.
 5. Ensure cleanup still runs after failure.
 6. Update [Supported Bitcoin Core Versions](supported-bitcoin-core.md) if the workflow changes version requirements.
+7. Follow the closed-definition and evidence rules in [Authoring Verified Scenarios](verified-scenarios.md).

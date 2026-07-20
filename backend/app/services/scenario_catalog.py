@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from app.errors import BitScopeError
 from app.models.scenario import ScenarioDefinition
 from app.models.scenario_api import ScenarioCatalogEntry, ScenarioDetailResponse
+from app.services.transaction_lifecycle_scenario import TRANSACTION_LIFECYCLE_SCENARIO
 
 
 @dataclass(frozen=True)
@@ -101,7 +102,7 @@ class ScenarioCatalog:
                 message="The scenario version used by this run is no longer registered.",
                 status_code=409,
                 details={
-                    "scenario_id": scenario_id,
+                    "scenario_id": definition.scenario_id,
                     "required_version": version,
                     "available_version": definition.version,
                 },
@@ -109,6 +110,6 @@ class ScenarioCatalog:
         return definition
 
 
-# Foundational executable scenarios are registered in Phase 3 after their live-node
-# behavior, negative paths, evidence, and cleanup have all been proved.
-DEFAULT_SCENARIO_CATALOG = ScenarioCatalog()
+DEFAULT_SCENARIO_CATALOG = ScenarioCatalog(
+    (RegisteredScenario(TRANSACTION_LIFECYCLE_SCENARIO),)
+)

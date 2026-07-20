@@ -370,11 +370,11 @@ Do not assume the flagship three-branch policy is supported. Implement the prove
 
 ### Phase 1 - Verified Scenarios domain
 
-- [ ] Add closed, versioned scenario definition and step models.
-- [ ] Add explicit run state machine, revision, step uniqueness, and assertions.
-- [ ] Add SQLite scenario tables linked to lab sessions.
-- [ ] Add protected scenario/run routes and security tests.
-- [ ] Add unit tests for validation, transitions, ownership, interruption, and cleanup state.
+- [x] Add closed, versioned scenario definition and step models.
+- [x] Add explicit run state machine, revision, step uniqueness, and assertions.
+- [x] Add SQLite scenario tables linked to lab sessions.
+- [x] Add protected scenario/run routes and security tests.
+- [x] Add unit tests for validation, transitions, ownership, interruption, and cleanup state.
 
 ### Phase 2 - Evidence
 

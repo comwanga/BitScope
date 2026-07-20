@@ -3,7 +3,7 @@ from typing import Literal, cast
 
 from app.config import BitcoinNetwork
 from app.errors import BitScopeError
-from app.rpc.client import BitcoinRpcClient
+from app.rpc.capabilities import RpcTransport
 
 
 RuntimeChain = Literal["main", "test", "signet", "regtest"]
@@ -37,7 +37,7 @@ class ChainContext:
 class NetworkSafetyGuard:
     """Fail-closed safety checks based on Bitcoin Core's live chain identity."""
 
-    def __init__(self, rpc_client: BitcoinRpcClient) -> None:
+    def __init__(self, rpc_client: RpcTransport) -> None:
         self.rpc_client = rpc_client
 
     def get_context(self) -> ChainContext:

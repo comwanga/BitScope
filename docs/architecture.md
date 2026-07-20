@@ -87,6 +87,10 @@ Services keep Bitcoin-specific behavior out of route handlers:
 - `KeyService`: public descriptor, xpub, derivation path, watch-only wallet, and hardware-wallet PSBT education.
 - `LearningService`: concept catalog and RPC method reference.
 - `LabSessionService`: SQLite-backed isolated lab ownership, resume, reset, export, and safe wallet cleanup.
+- `ScenarioCatalog`: immutable registry of reviewed, versioned scenario definitions and their run availability.
+- `ScenarioService`: ownership-scoped, optimistic-revision run creation and preparation with live regtest verification. Phase 1 does not execute Bitcoin scenario steps; executable definitions are registered only after their live behavior and cleanup are proved.
+
+Scenario runs are stored transactionally beside their owning lab sessions. Their identity fields and recorded histories are append-only, state changes use explicit transitions and revision checks, and reset creates a new run rather than rewriting the old run. Runs that may own resources cannot be reset or deleted until cleanup is recorded as complete.
 
 ## API Surface
 
@@ -101,6 +105,7 @@ All routes are prefixed with `/api`.
 | Addresses and indexing | `/addresses/{address}`, `/index/scan-address` |
 | Wallet and regtest | `/wallets`, `/wallets/create`, `/wallets/load`, `/wallets/{wallet_name}/balance`, `/wallets/{wallet_name}/address`, `/wallets/{wallet_name}/utxos`, `/wallets/{wallet_name}/transactions`, `/regtest/mine`, `/regtest/faucet`, `/demo/run` |
 | Persistent labs | `/labs`, `/labs/{session_id}`, `/labs/{session_id}/reset`, `/labs/{session_id}/export`, `/labs/{session_id}?confirm=true` |
+| Verified scenarios | `/scenarios`, `/scenarios/{scenario_id}`, `/scenarios/{scenario_id}/runs`, `/scenario-runs/{run_id}`, `/scenario-runs/{run_id}/advance`, `/scenario-runs/{run_id}/reset`, `/scenario-runs/{run_id}?confirm=true` |
 | Scripts and data | `/scripts/decode`, `/scripts/template`, `/scripts/test-spend`, `/scripts/create-op-return` |
 | PSBT, multisig, timelocks | `/psbt/create`, `/psbt/decode`, `/psbt/wallet-process`, `/psbt/finalize`, `/multisig/create`, `/multisig/fund`, `/multisig/spend-psbt`, `/timelocks/transaction`, `/timelocks/script-template` |
 | Descriptors and Taproot | `/descriptors/analyze`, `/descriptors/wallet/{wallet_name}`, `/taproot/inspect` |

@@ -71,6 +71,32 @@ class PrepareIsolatedWalletStep(ScenarioStepBase):
     output_wallet_ref: ArtifactKey
 
 
+class PrepareMultisigSignersStep(ScenarioStepBase):
+    type: Literal["prepare_multisig_signers"] = "prepare_multisig_signers"
+    phase: Literal[ScenarioStepPhase.SETUP] = ScenarioStepPhase.SETUP
+    signer_count: int = Field(ge=2, le=15)
+    legacy_wallets: Literal[True] = True
+    output_wallets_ref: ArtifactKey
+
+
+class CreateMultisigAddressStep(ScenarioStepBase):
+    type: Literal["create_multisig_address"] = "create_multisig_address"
+    phase: Literal[ScenarioStepPhase.SETUP] = ScenarioStepPhase.SETUP
+    signer_wallets_ref: ArtifactKey
+    required_signatures: int = Field(ge=1, le=15)
+    address_type: Literal["legacy", "p2sh-segwit", "bech32"] = "bech32"
+    output_multisig_ref: ArtifactKey
+
+
+class FundMultisigStep(ScenarioStepBase):
+    type: Literal["fund_multisig"] = "fund_multisig"
+    wallet_ref: ArtifactKey
+    multisig_ref: ArtifactKey
+    amount_btc: PositiveBtcAmount
+    fee_rate_sat_vb: Decimal = Field(gt=0, le=10_000, max_digits=16, decimal_places=3)
+    output_txid_ref: ArtifactKey
+
+
 class GenerateAddressStep(ScenarioStepBase):
     type: Literal["generate_address"] = "generate_address"
     wallet_ref: ArtifactKey
@@ -174,12 +200,24 @@ class CreatePsbtStep(ScenarioStepBase):
     output_psbt_ref: ArtifactKey
 
 
+class CreateMultisigPsbtStep(ScenarioStepBase):
+    type: Literal["create_multisig_psbt"] = "create_multisig_psbt"
+    signer_wallets_ref: ArtifactKey
+    multisig_ref: ArtifactKey
+    recipient_address_ref: ArtifactKey
+    amount_btc: PositiveBtcAmount
+    fee_rate_sat_vb: Decimal = Field(gt=0, le=10_000, max_digits=16, decimal_places=3)
+    output_psbt_ref: ArtifactKey
+
+
 class ProcessPsbtStep(ScenarioStepBase):
     type: Literal["process_psbt"] = "process_psbt"
     wallet_ref: ArtifactKey
     psbt_ref: ArtifactKey
     sign: bool = True
+    finalize: bool = True
     output_psbt_ref: ArtifactKey
+    output_signature_count_ref: ArtifactKey | None = None
 
 
 class FinalizePsbtStep(ScenarioStepBase):
@@ -273,6 +311,9 @@ class CleanupLabStep(ScenarioStepBase):
 ScenarioStep = Annotated[
     VerifyRuntimeChainStep
     | PrepareIsolatedWalletStep
+    | PrepareMultisigSignersStep
+    | CreateMultisigAddressStep
+    | FundMultisigStep
     | GenerateAddressStep
     | MineBlocksStep
     | SelectUtxosStep
@@ -283,6 +324,7 @@ ScenarioStep = Annotated[
     | CreateWalletRbfTransactionStep
     | BumpFeeStep
     | CreatePsbtStep
+    | CreateMultisigPsbtStep
     | ProcessPsbtStep
     | FinalizePsbtStep
     | DecodeTransactionStep
@@ -410,6 +452,9 @@ class CleanupRules(StrictScenarioModel):
 MUTATING_STEP_TYPES = frozenset(
     {
         "prepare_isolated_wallet",
+        "prepare_multisig_signers",
+        "create_multisig_address",
+        "fund_multisig",
         "generate_address",
         "mine_blocks",
         "create_raw_transaction",
@@ -419,6 +464,7 @@ MUTATING_STEP_TYPES = frozenset(
         "create_wallet_rbf_transaction",
         "bump_fee",
         "create_psbt",
+        "create_multisig_psbt",
         "process_psbt",
         "finalize_psbt",
         "broadcast_transaction",

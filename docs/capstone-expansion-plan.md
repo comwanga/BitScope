@@ -308,7 +308,7 @@ The current multisig live workflow depends on legacy BDB compatibility:
 - The Bitcoin Core 28.1 CI process enables `-deprecatedrpc=create_bdb` explicitly.
 - `docs/live-rpc-testing.md` documents this as a compatibility constraint.
 
-This path must not be removed during the scenario-model phases. It is currently the only proved live multisig flow and also has educational limitations: all signer keys are held by one Bitcoin Core wallet, so it does not demonstrate independent signer custody.
+This compatibility path remains in use. The foundational scenario extends it with three session-owned one-key legacy wallets so incomplete and threshold-complete PSBT states are observable. The wallets still share one Bitcoin Core process and one BitScope session, so the result demonstrates staged signer contexts rather than independent custody.
 
 Before a descriptor-wallet migration:
 
@@ -388,7 +388,7 @@ Do not assume the flagship three-branch policy is supported. Implement the prove
 - [ ] Implement transaction lifecycle, RBF, multisig PSBT, and one real timelock scenario.
   - [x] Transaction lifecycle: confirmed positive path, pinned overspend rejection, deterministic evidence, and verified cleanup.
   - [x] RBF replacement: opt-in signaling, exact insufficient-fee rejection, original eviction, replacement confirmation, evidence, and cleanup.
-  - [ ] Multisig PSBT.
+  - [x] Multisig PSBT: one-key signer contexts, one-signature incompleteness, 2-of-3 completion, preflight, confirmation, deterministic evidence, and cleanup.
   - [ ] One real timelock spend.
 - [ ] Add CPFP and OP_RETURN only after the mandatory four are complete or in parallel without weakening them.
 - [ ] Give every scenario a meaningful proved negative path, live test, evidence, and cleanup.

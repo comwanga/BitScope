@@ -29,4 +29,12 @@ The negative path asks `bumpfee` for the transaction's existing fee rate. On pin
 
 The proof bundle separates original signaling, the insufficient-fee failure, replacement economics and eviction, and confirmed replacement decoding. RBF remains mempool policy: the evidence describes the tested Core version and node configuration, not a consensus rule or production fee recommendation.
 
-Both deterministic bundles contain node context, scenario evidence, Core output, assertions, safe reproduction commands, manifest hashes, and a run report. They are regtest evidence—not signatures, audits, or production-spend approvals.
+## Multisig PSBT reference
+
+`multisig-psbt` version `1.0.0` creates a native-SegWit 2-of-3 policy from three session-owned legacy wallets, each contributing one signer key. It funds and confirms one policy output, then constructs an unsigned one-input PSBT with an explicit fee rate.
+
+The negative path processes the PSBT with only the first signer. Verification requires exactly one partial signature, `complete=false`, and a non-extracting `finalizepsbt` result with no transaction hex. Both signing calls set `finalize=false` so signatures remain inspectable; after the second signer Core 28.1 therefore reports two partial signatures and `complete=false`. A separate `finalizepsbt` call must report `complete=true` and extract transaction hex before preflight, broadcast, observation, confirmation, and decoding.
+
+The pinned Core 28.1 node requires `-deprecatedrpc=create_bdb` because this compatibility path uses `addmultisigaddress` in legacy wallets. All three wallets are owned by the same BitScope lab session and controlled by one Core process. The scenario proves staged threshold behavior; it does not prove independent custody, hardware-wallet isolation, or a production multisig ceremony.
+
+Deterministic bundles contain node context, scenario evidence, Core output, assertions, safe reproduction commands, manifest hashes, and a run report. They are regtest evidence—not signatures, audits, or production-spend approvals.

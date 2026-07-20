@@ -85,6 +85,20 @@ def test_process_psbt_allows_mainnet_metadata_without_signing() -> None:
     assert rpc.calls[0] == ("walletprocesspsbt", ["psbt", False], "demo")
 
 
+def test_process_psbt_can_preserve_partial_signatures_for_staged_signing() -> None:
+    rpc = FakeRpcClient()
+
+    result = PsbtService(rpc).process("demo", "psbt", True, False)  # type: ignore[arg-type]
+
+    assert result["complete"] is True
+    assert result["finalize_requested"] is False
+    assert rpc.calls[0] == (
+        "walletprocesspsbt",
+        ["psbt", True, "ALL", True, False],
+        "demo",
+    )
+
+
 def test_finalize_psbt_returns_hex_when_extracting() -> None:
     rpc = FakeRpcClient()
 

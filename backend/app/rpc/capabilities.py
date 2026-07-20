@@ -81,6 +81,7 @@ REGTEST_MUTATION_METHODS = WALLET_READ_METHODS | {
     "fundrawtransaction",
     "generatetoaddress",
     "getnewaddress",
+    "importaddress",
     "loadwallet",
     "sendrawtransaction",
     "sendtoaddress",

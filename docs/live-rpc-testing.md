@@ -40,6 +40,8 @@ The verified transaction-lifecycle test mines its 102 maturity blocks in bounded
 
 The verified RBF test creates an original transaction at 2 sat/vB with `replaceable=true`, records its input sequences and `bip125-replaceable` mempool field, and asks `bumpfee` for the same observed rate. Pinned Core 28.1 returns RPC `-8` with structured old-fee and incremental-fee details. The scenario then adds 10 sat/vB, verifies the original is absent, observes the replacement, and confirms it.
 
+The verified multisig PSBT test creates three session-owned legacy wallets with one signer key each, registers the same native-SegWit 2-of-3 policy, and imports its address watch-only before funding. Both signer calls use `finalize=false`: the first must leave exactly one partial signature and no extracted transaction, while the second must expose two partial signatures. A separate finalizer call must return `complete=true` before Core accepts, broadcasts, and confirms the spend. The node must be started with `-deprecatedrpc=create_bdb`. These local wallet contexts demonstrate staged threshold mechanics, not independent custody or production key separation.
+
 ## Common Failures
 
 ### Insufficient or Immature Funds

@@ -18,6 +18,8 @@ from app.models.scenario import (
 from app.rpc.capabilities import ReadOnlyRpcClient, RpcTransport
 from app.services.evidence_service import EvidenceService
 from app.services.lab_session_store import LabSessionStore
+from app.services.multisig_psbt_scenario import MULTISIG_PSBT_SCENARIO
+from app.services.multisig_psbt_scenario_service import MultisigPsbtScenarioService
 from app.services.network_safety import NetworkSafetyGuard
 from app.services.rbf_scenario import RBF_REPLACEMENT_SCENARIO
 from app.services.rbf_scenario_service import RbfScenarioService
@@ -55,6 +57,10 @@ class ScenarioService:
             rpc_client,
             owned_lab_store,
         )
+        self.multisig_psbt_service = MultisigPsbtScenarioService(
+            rpc_client,
+            owned_lab_store,
+        )
 
     def create_run(self, scenario_id: str, lab_session_id: str) -> ScenarioRun:
         definition = self.catalog.require_available(scenario_id)
@@ -87,6 +93,12 @@ class ScenarioService:
                 return self._execute_reviewed_scenario(run, definition, self.lifecycle_service)
             if definition == RBF_REPLACEMENT_SCENARIO:
                 return self._execute_reviewed_scenario(run, definition, self.rbf_service)
+            if definition == MULTISIG_PSBT_SCENARIO:
+                return self._execute_reviewed_scenario(
+                    run,
+                    definition,
+                    self.multisig_psbt_service,
+                )
             raise self._execution_not_available(run)
         if run.current_state != ScenarioRunState.CREATED:
             raise self._execution_not_available(run)

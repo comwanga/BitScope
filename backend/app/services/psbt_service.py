@@ -94,13 +94,28 @@ class PsbtService:
             "raw": {"decodepsbt": decoded},
         }
 
-    def process(self, wallet_name: str, psbt: str, sign: bool = True) -> dict[str, object]:
+    def process(
+        self,
+        wallet_name: str,
+        psbt: str,
+        sign: bool = True,
+        finalize: bool = True,
+    ) -> dict[str, object]:
         clean_wallet = self._clean(wallet_name, "wallet name")
         clean_psbt = self._clean(psbt, "PSBT")
         if sign:
             NetworkSafetyGuard(self.rpc_client).require_regtest()
 
-        result = self._as_dict(self.rpc_client.call("walletprocesspsbt", [clean_psbt, sign], wallet_name=clean_wallet))
+        parameters: list[object] = [clean_psbt, sign]
+        if not finalize:
+            parameters.extend(["ALL", True, False])
+        result = self._as_dict(
+            self.rpc_client.call(
+                "walletprocesspsbt",
+                parameters,
+                wallet_name=clean_wallet,
+            )
+        )
         processed_psbt = self._optional_str(result.get("psbt"))
         if processed_psbt is None:
             raise BitScopeError(
@@ -110,14 +125,21 @@ class PsbtService:
                 details={"rpc_method": "walletprocesspsbt"},
             )
         decoded = self.decode(processed_psbt)
+        process_command = (
+            f"bitcoin-cli -rpcwallet={clean_wallet} walletprocesspsbt <psbt> "
+            f"{str(sign).lower()}"
+        )
+        if not finalize:
+            process_command += " ALL true false"
 
         return {
             "wallet_name": clean_wallet,
             "psbt": processed_psbt,
             "complete": self._optional_bool(result.get("complete")) is True,
             "signed": sign,
+            "finalize_requested": finalize,
             "decoded": decoded,
-            "cli_commands": [f"bitcoin-cli -rpcwallet={clean_wallet} walletprocesspsbt <psbt> {str(sign).lower()}"],
+            "cli_commands": [process_command],
             "rpc_methods": ["walletprocesspsbt", "decodepsbt"],
             "concepts": ["PSBT", "Signing", "Wallet", "Finalization"],
             "explanation": "Wallet processing updates the PSBT with wallet metadata and, when requested, signatures for wallet-owned inputs.",

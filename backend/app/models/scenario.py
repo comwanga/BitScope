@@ -921,6 +921,19 @@ class ScenarioRun(StrictScenarioModel):
         data["revision"] = self.revision + 1
         return ScenarioRun.model_validate(data)
 
+    def record_evidence_reference(
+        self,
+        reference: EvidenceReference,
+        now: datetime | None = None,
+    ) -> "ScenarioRun":
+        if any(existing.evidence_id == reference.evidence_id for existing in self.evidence):
+            raise ValueError(f"Evidence {reference.evidence_id} has already been recorded.")
+        data = self.model_dump(mode="python")
+        data["evidence"].append(reference.model_dump(mode="python"))
+        data["updated_at"] = now or datetime.now(UTC)
+        data["revision"] = self.revision + 1
+        return ScenarioRun.model_validate(data)
+
     def with_cleanup_status(self, status: CleanupStatus, now: datetime | None = None) -> "ScenarioRun":
         data = self.model_dump(mode="python")
         data["cleanup_status"] = status

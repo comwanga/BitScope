@@ -89,6 +89,7 @@ Services keep Bitcoin-specific behavior out of route handlers:
 - `LabSessionService`: SQLite-backed isolated lab ownership, resume, reset, export, and safe wallet cleanup.
 - `ScenarioCatalog`: immutable registry of reviewed, versioned scenario definitions and their run availability.
 - `ScenarioService`: ownership-scoped, optimistic-revision run creation and preparation with live regtest verification. Phase 1 does not execute Bitcoin scenario steps; executable definitions are registered only after their live behavior and cleanup are proved.
+- `EvidenceService`: typed evidence capture that keeps Bitcoin Core output separate from BitScope interpretation, recursively redacts credentials and private-key material, emits canonical JSON, and attaches a hash-backed reference to the owning run.
 
 Scenario runs are stored transactionally beside their owning lab sessions. Their identity fields and recorded histories are append-only, state changes use explicit transitions and revision checks, and reset creates a new run rather than rewriting the old run. Runs that may own resources cannot be reset or deleted until cleanup is recorded as complete.
 

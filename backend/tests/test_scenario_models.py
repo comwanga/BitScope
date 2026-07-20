@@ -111,6 +111,20 @@ def valid_definition() -> ScenarioDefinition:
     return ScenarioDefinition.model_validate(valid_definition_data())
 
 
+def record_all_defined_steps(run: ScenarioRun) -> ScenarioRun:
+    for step_id in run.defined_step_ids:
+        run = run.record_step_result(
+            ScenarioStepResult(
+                step_id=step_id,
+                status=ScenarioStepResultStatus.COMPLETED,
+                started_at=NOW,
+                completed_at=NOW,
+            ),
+            now=NOW,
+        )
+    return run
+
+
 def test_valid_scenario_definition_uses_closed_typed_steps() -> None:
     definition = valid_definition()
 
@@ -285,6 +299,7 @@ def test_run_creation_requires_a_valid_lab_session_and_snapshots_assertions() ->
 
     assert run.runtime_chain == "regtest"
     assert run.lab_session_id == "session_12345678"
+    assert run.defined_step_ids == [step.step_id for step in valid_definition().steps]
     assert run.required_assertion_ids == ["wallet_ready"]
     assert run.current_state == ScenarioRunState.CREATED
 
@@ -300,6 +315,7 @@ def test_run_state_machine_accepts_valid_transitions_and_rejects_invalid_ones() 
 
     run = run.transition_to(ScenarioRunState.READY, now=NOW)
     run = run.transition_to(ScenarioRunState.RUNNING, now=NOW)
+    run = record_all_defined_steps(run)
     run = run.transition_to(ScenarioRunState.VERIFYING, now=NOW)
     run = run.record_assertion_result(
         AssertionResult(
@@ -366,7 +382,7 @@ def test_step_results_distinguish_expected_and_unexpected_failures() -> None:
     run = ScenarioRun.create(valid_definition(), "session_12345678", now=NOW)
     expected = ScenarioFailure(
         failure_id="failure.expected",
-        step_id="premature_spend",
+        step_id="verify_chain",
         category=FailureCategory.MEMPOOL_POLICY,
         expected=True,
         code="TRANSACTION_REJECTED_BY_POLICY",
@@ -375,7 +391,7 @@ def test_step_results_distinguish_expected_and_unexpected_failures() -> None:
     )
     run = run.record_step_result(
         ScenarioStepResult(
-            step_id="premature_spend",
+            step_id="verify_chain",
             status=ScenarioStepResultStatus.EXPECTED_FAILURE,
             started_at=NOW,
             completed_at=NOW + timedelta(seconds=1),
@@ -385,7 +401,7 @@ def test_step_results_distinguish_expected_and_unexpected_failures() -> None:
     )
     unexpected = ScenarioFailure(
         failure_id="failure.unexpected",
-        step_id="broadcast",
+        step_id="prepare_wallet",
         category=FailureCategory.UNEXPECTED_APPLICATION,
         expected=False,
         code="BITCOIN_CORE_OFFLINE",
@@ -393,7 +409,7 @@ def test_step_results_distinguish_expected_and_unexpected_failures() -> None:
     )
     run = run.record_step_result(
         ScenarioStepResult(
-            step_id="broadcast",
+            step_id="prepare_wallet",
             status=ScenarioStepResultStatus.UNEXPECTED_FAILURE,
             started_at=NOW,
             completed_at=NOW + timedelta(seconds=1),
@@ -402,8 +418,8 @@ def test_step_results_distinguish_expected_and_unexpected_failures() -> None:
         now=NOW,
     )
 
-    assert run.completed_steps == ["premature_spend"]
-    assert run.failed_steps == ["broadcast"]
+    assert run.completed_steps == ["verify_chain"]
+    assert run.failed_steps == ["prepare_wallet"]
     assert run.expected_failures == [expected]
     assert run.unexpected_failures == [unexpected]
 
@@ -419,6 +435,19 @@ def test_duplicate_step_execution_is_rejected() -> None:
     run = run.record_step_result(result, now=NOW)
 
     with pytest.raises(ValueError, match="already been recorded"):
+        run.record_step_result(result, now=NOW)
+
+
+def test_results_for_steps_outside_the_definition_are_rejected() -> None:
+    run = ScenarioRun.create(valid_definition(), "session_12345678", now=NOW)
+    result = ScenarioStepResult(
+        step_id="arbitrary_step",
+        status=ScenarioStepResultStatus.COMPLETED,
+        started_at=NOW,
+        completed_at=NOW,
+    )
+
+    with pytest.raises(ValueError, match="not part of this run's definition"):
         run.record_step_result(result, now=NOW)
 
 
@@ -444,4 +473,49 @@ def test_run_rejects_duplicate_evidence_references() -> None:
     payload["evidence"] = [deepcopy(reference), deepcopy(reference)]
 
     with pytest.raises(ValidationError, match="Evidence identifiers must be unique"):
+        ScenarioRun.model_validate(payload)
+
+
+def test_run_rejects_duplicate_failure_identifiers() -> None:
+    run = ScenarioRun.create(valid_definition(), "session_12345678", now=NOW)
+    first = ScenarioFailure(
+        failure_id="failure.duplicate",
+        step_id="verify_chain",
+        category=FailureCategory.MEMPOOL_POLICY,
+        expected=True,
+        code="EXPECTED_REJECTION",
+        safe_message="The first expected rejection.",
+    )
+    second = ScenarioFailure(
+        failure_id="failure.duplicate",
+        step_id="prepare_wallet",
+        category=FailureCategory.MEMPOOL_POLICY,
+        expected=True,
+        code="EXPECTED_REJECTION",
+        safe_message="The second expected rejection.",
+    )
+    first_result = ScenarioStepResult(
+        step_id="verify_chain",
+        status=ScenarioStepResultStatus.EXPECTED_FAILURE,
+        started_at=NOW,
+        completed_at=NOW,
+        failure=first,
+    )
+    second_result = ScenarioStepResult(
+        step_id="prepare_wallet",
+        status=ScenarioStepResultStatus.EXPECTED_FAILURE,
+        started_at=NOW,
+        completed_at=NOW,
+        failure=second,
+    )
+    payload = run.model_dump(mode="python")
+    payload.update(
+        {
+            "completed_steps": ["verify_chain", "prepare_wallet"],
+            "step_results": [first_result.model_dump(mode="python"), second_result.model_dump(mode="python")],
+            "expected_failures": [first.model_dump(mode="python"), second.model_dump(mode="python")],
+        }
+    )
+
+    with pytest.raises(ValidationError, match="Failure identifiers must be unique"):
         ScenarioRun.model_validate(payload)

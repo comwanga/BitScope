@@ -714,6 +714,7 @@ class ScenarioRun(StrictScenarioModel):
     current_state: ScenarioRunState = ScenarioRunState.CREATED
     current_step_id: Identifier | None = None
     revision: int = Field(default=0, ge=0)
+    defined_step_ids: list[Identifier] = Field(min_length=1, max_length=500)
     required_assertion_ids: list[Identifier] = Field(default_factory=list, max_length=500)
     completed_steps: list[Identifier] = Field(default_factory=list, max_length=500)
     failed_steps: list[Identifier] = Field(default_factory=list, max_length=500)
@@ -745,6 +746,7 @@ class ScenarioRun(StrictScenarioModel):
             lab_session_id=lab_session_id,
             runtime_chain="regtest",
             bitcoin_core_version=bitcoin_core_version,
+            defined_step_ids=[step.step_id for step in definition.steps],
             required_assertion_ids=[assertion.assertion_id for assertion in definition.assertions if assertion.required],
             created_at=timestamp,
             updated_at=timestamp,
@@ -753,6 +755,7 @@ class ScenarioRun(StrictScenarioModel):
     @model_validator(mode="after")
     def run_is_coherent(self) -> "ScenarioRun":
         for label, values in (
+            ("defined step", self.defined_step_ids),
             ("required assertion", self.required_assertion_ids),
             ("completed step", self.completed_steps),
             ("failed step", self.failed_steps),
@@ -764,6 +767,13 @@ class ScenarioRun(StrictScenarioModel):
         step_ids = [result.step_id for result in self.step_results]
         if len(step_ids) != len(set(step_ids)):
             raise ValueError("A scenario step cannot be recorded more than once.")
+        unknown_step_ids = set(step_ids) - set(self.defined_step_ids)
+        if unknown_step_ids:
+            raise ValueError(
+                f"Run results reference undefined scenario steps: {', '.join(sorted(unknown_step_ids))}."
+            )
+        if self.current_step_id is not None and self.current_step_id not in self.defined_step_ids:
+            raise ValueError("The current step must belong to the scenario definition.")
         assertion_ids = [result.assertion_id for result in self.assertion_results]
         if len(assertion_ids) != len(set(assertion_ids)):
             raise ValueError("An assertion cannot be recorded more than once.")
@@ -800,6 +810,11 @@ class ScenarioRun(StrictScenarioModel):
             raise ValueError("Expected failure records must be marked expected.")
         if any(failure.expected for failure in self.unexpected_failures):
             raise ValueError("Unexpected failure records cannot be marked expected.")
+        failure_ids = [
+            failure.failure_id for failure in [*self.expected_failures, *self.unexpected_failures]
+        ]
+        if len(failure_ids) != len(set(failure_ids)):
+            raise ValueError("Failure identifiers must be unique within a run.")
         expected_failure_ids = {
             result.failure.failure_id
             for result in self.step_results
@@ -876,6 +891,8 @@ class ScenarioRun(StrictScenarioModel):
         return ScenarioRun.model_validate(data)
 
     def record_step_result(self, result: ScenarioStepResult, now: datetime | None = None) -> "ScenarioRun":
+        if result.step_id not in self.defined_step_ids:
+            raise ValueError(f"Scenario step {result.step_id} is not part of this run's definition.")
         if any(existing.step_id == result.step_id for existing in self.step_results):
             raise ValueError(f"Scenario step {result.step_id} has already been recorded.")
 
@@ -932,3 +949,8 @@ class ScenarioRun(StrictScenarioModel):
                 raise ValueError("A fully verified run cannot contain failed or skipped assertions.")
             if self.skipped_steps:
                 raise ValueError("A fully verified run cannot contain skipped steps.")
+        incomplete_steps = set(self.defined_step_ids) - set(self.completed_steps)
+        if incomplete_steps:
+            raise ValueError(
+                f"Verified runs require every defined step to complete: {', '.join(sorted(incomplete_steps))}."
+            )

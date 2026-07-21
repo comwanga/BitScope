@@ -395,8 +395,8 @@ Do not assume the flagship three-branch policy is supported. Implement the prove
 
 ### Phase 4 - Community Treasury Recovery
 
-- [ ] Research the exact policy against Core 28.1 and current dependencies.
-- [ ] Prove immediate, premature, and mature branches in isolation.
+- [x] Research the exact three-path P2WSH Miniscript policy against Core 28.1 and current dependencies.
+- [x] Prove immediate, premature, mature recovery, incorrect-sequence, and threshold-emergency branches in isolation.
 - [ ] Implement only supported branches with independent signer-context limitations documented.
 - [ ] Export a complete Proof of Spendability bundle and add pinned live CI coverage.
 

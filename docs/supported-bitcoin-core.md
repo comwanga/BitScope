@@ -17,6 +17,7 @@ The integration lifecycle uses a temporary container and datadir, creates a uniq
 - verified 2-of-3 multisig PSBT staging across three session-owned legacy wallets;
 - absolute-locktime transaction construction and mempool-policy inspection;
 - verified P2WSH CLTV funding, premature `non-final` rejection, script-constraint rejection, maturity, broadcast, and confirmation;
+- three-branch P2WSH Miniscript treasury policy derivation, watch-only import, participant-wallet PSBT signing, CSV rejection, and mature recovery;
 - OP_RETURN transaction construction;
 - RBF fee bumping;
 - CPFP child construction.

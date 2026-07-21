@@ -44,6 +44,8 @@ The verified multisig PSBT test creates three session-owned legacy wallets with 
 
 The verified CLTV test funds a P2WSH `<height> OP_CHECKLOCKTIMEVERIFY OP_DROP <pubkey> OP_CHECKSIG` output and locally signs its BIP143 witness with an ephemeral in-memory key. Pinned Core 28.1 must report `non-final` before maturity, reject final-sequence and low-nLockTime variants with `Locktime requirement not satisfied`, accept the unchanged valid transaction at the exact target height, and confirm it. Cleanup drops the signer reference and no private key enters RPC or proof artifacts; Python does not guarantee immediate zeroization of released memory.
 
+The Community Treasury policy proof imports a public three-branch P2WSH Miniscript descriptor into a private-key-disabled coordinator wallet. Separate descriptor wallets contribute 2-of-3 operator, recovery, and emergency signatures through PSBTs. Core 28.1 must keep every one-signature PSBT incomplete, reject delayed transactions as `non-BIP68-final`, refuse finalization when sequence is below the script's `older()` value, and accept the unchanged recovery and emergency transactions after their relative block delays.
+
 ## Common Failures
 
 ### Insufficient or Immature Funds

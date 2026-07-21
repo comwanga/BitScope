@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from app.errors import BitScopeError
 from app.models.scenario import ScenarioDefinition
 from app.models.scenario_api import ScenarioCatalogEntry, ScenarioDetailResponse
+from app.services.cltv_timelock_scenario import CLTV_TIMELOCK_SCENARIO
 from app.services.multisig_psbt_scenario import MULTISIG_PSBT_SCENARIO
 from app.services.rbf_scenario import RBF_REPLACEMENT_SCENARIO
 from app.services.transaction_lifecycle_scenario import TRANSACTION_LIFECYCLE_SCENARIO
@@ -114,6 +115,7 @@ class ScenarioCatalog:
 
 DEFAULT_SCENARIO_CATALOG = ScenarioCatalog(
     (
+        RegisteredScenario(CLTV_TIMELOCK_SCENARIO),
         RegisteredScenario(MULTISIG_PSBT_SCENARIO),
         RegisteredScenario(RBF_REPLACEMENT_SCENARIO),
         RegisteredScenario(TRANSACTION_LIFECYCLE_SCENARIO),

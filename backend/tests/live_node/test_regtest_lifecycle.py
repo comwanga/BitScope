@@ -213,6 +213,70 @@ def test_live_regtest_verified_multisig_psbt(
             lab_service.cleanup(session.session_id)
 
 
+def test_live_regtest_verified_cltv_timelock(
+    live_rpc_client: BitcoinRpcClient,
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "verified-cltv-timelock.sqlite3"
+    lab_store = LabSessionStore(str(database))
+    lab_service = LabSessionService(live_rpc_client, lab_store)
+    session = lab_service.create("cltv-timelock")
+    run_store = ScenarioRunStore(str(database))
+    artifacts = ScenarioArtifactStore(str(tmp_path / "scenario-artifacts"))
+    scenario_service = ScenarioService(
+        live_rpc_client,
+        run_store,
+        DEFAULT_SCENARIO_CATALOG,
+        EvidenceService.from_settings(live_rpc_client.settings),
+        artifacts,
+        lab_store,
+    )
+
+    try:
+        created = scenario_service.create_run("cltv-timelock", session.session_id)
+        ready = scenario_service.advance(created.run_id, session.session_id, expected_revision=0)
+        verified = scenario_service.advance(ready.run_id, session.session_id, expected_revision=1)
+
+        assert verified.current_state.value == "verified"
+        assert verified.cleanup_status.value == "completed"
+        assert [failure.code for failure in verified.expected_failures] == [
+            "non-final",
+            "cltv-final-sequence",
+            "cltv-low-locktime",
+        ]
+        assert [failure.category.value for failure in verified.expected_failures] == [
+            "mempool_policy",
+            "script_verification",
+            "script_verification",
+        ]
+        assert all(result.status.value == "passed" for result in verified.assertion_results)
+
+        session_after = lab_store.get(session.session_id)
+        assert session_after is not None
+        assert session_after.status == "cleaned"
+        assert session_after.transaction_ids[0] != session_after.transaction_ids[1]
+        assert len(session_after.block_hashes) == 106
+
+        bundle = ProofBundleService(
+            run_store,
+            artifacts,
+            DEFAULT_SCENARIO_CATALOG,
+        ).bundle(verified.run_id, session.session_id)
+        assert bundle.manifest.final_result is not None
+        assert bundle.manifest.final_result.value == "verified"
+        assert "evidence/cltv.premature.json" in bundle.files
+        assert "evidence/cltv.invalid-sequence.json" in bundle.files
+        assert "evidence/cltv.invalid-locktime.json" in bundle.files
+        assert "evidence/cltv.mature.json" in bundle.files
+        assert "evidence/cltv.confirmed.json" in bundle.files
+        assert b"private" not in bundle.files["evidence/cltv.policy-funding.json"].lower()
+    finally:
+        scenario_service.cltv_timelock_service.timelock_service.clear_ephemeral_cltv_keys()
+        persisted = lab_store.get(session.session_id)
+        if persisted is not None and persisted.status == "active":
+            lab_service.cleanup(session.session_id)
+
+
 def test_live_regtest_advanced_transaction_workflows(
     live_rpc_client: BitcoinRpcClient,
     mature_wallet: str,

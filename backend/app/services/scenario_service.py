@@ -16,6 +16,8 @@ from app.models.scenario import (
     TERMINAL_RUN_STATES,
 )
 from app.rpc.capabilities import ReadOnlyRpcClient, RpcTransport
+from app.services.cltv_timelock_scenario import CLTV_TIMELOCK_SCENARIO
+from app.services.cltv_timelock_scenario_service import CltvTimelockScenarioService
 from app.services.evidence_service import EvidenceService
 from app.services.lab_session_store import LabSessionStore
 from app.services.multisig_psbt_scenario import MULTISIG_PSBT_SCENARIO
@@ -61,6 +63,10 @@ class ScenarioService:
             rpc_client,
             owned_lab_store,
         )
+        self.cltv_timelock_service = CltvTimelockScenarioService(
+            rpc_client,
+            owned_lab_store,
+        )
 
     def create_run(self, scenario_id: str, lab_session_id: str) -> ScenarioRun:
         definition = self.catalog.require_available(scenario_id)
@@ -98,6 +104,12 @@ class ScenarioService:
                     run,
                     definition,
                     self.multisig_psbt_service,
+                )
+            if definition == CLTV_TIMELOCK_SCENARIO:
+                return self._execute_reviewed_scenario(
+                    run,
+                    definition,
+                    self.cltv_timelock_service,
                 )
             raise self._execution_not_available(run)
         if run.current_state != ScenarioRunState.CREATED:

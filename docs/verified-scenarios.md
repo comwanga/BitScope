@@ -37,4 +37,12 @@ The negative path processes the PSBT with only the first signer. Verification re
 
 The pinned Core 28.1 node requires `-deprecatedrpc=create_bdb` because this compatibility path uses `addmultisigaddress` in legacy wallets. All three wallets are owned by the same BitScope lab session and controlled by one Core process. The scenario proves staged threshold behavior; it does not prove independent custody, hardware-wallet isolation, or a production multisig ceremony.
 
+## CLTV timelock reference
+
+`cltv-timelock` version `1.0.0` creates a fresh secp256k1 key in process memory and commits only its compressed public key to `<height> OP_CHECKLOCKTIMEVERIFY OP_DROP <pubkey> OP_CHECKSIG`. Core derives the native-SegWit P2WSH address, the isolated session wallet funds and confirms its exact outpoint, and BitScope signs the one-input spend with the standard BIP143 digest. The private scalar is never sent to RPC, persisted in SQLite, written to settings, or captured in evidence; cleanup drops the signer reference before unloading the session wallet. Python does not guarantee immediate zeroization of released memory.
+
+Before maturity, Core 28.1 must reject the correctly signed spend with `allowed=false` and `reject-reason=non-final`. A separately signed `0xffffffff` sequence variant and an nLockTime-one-block-low variant must both contain Core's `Locktime requirement not satisfied` script marker. Different rejections fail closed. The executor then advances by only the blocks needed to reach the exact target, requires Core to accept the unchanged originally premature transaction, broadcasts it, observes it in mempool, and confirms it.
+
+This proves an absolute block-height CLTV branch on regtest. It does not prove median-time-past CLTV, relative CSV, hardware custody, durable recovery-key backup, or production policy safety.
+
 Deterministic bundles contain node context, scenario evidence, Core output, assertions, safe reproduction commands, manifest hashes, and a run report. They are regtest evidence—not signatures, audits, or production-spend approvals.

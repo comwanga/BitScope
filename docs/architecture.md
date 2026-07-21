@@ -80,7 +80,7 @@ Services keep Bitcoin-specific behavior out of route handlers:
 - `ScriptService`: script decoding, script templates, transaction policy testing, and OP_RETURN transaction building.
 - `PsbtService`: PSBT creation, decode, wallet processing, signing, finalization, and extraction.
 - `MultisigService`: regtest multisig creation, funding, and PSBT-backed spending.
-- `TimelockService`: nLockTime, CLTV, CSV, sequence, and mempool preflight.
+- `TimelockService`: nLockTime and script templates plus real P2WSH CLTV policy funding, local BIP143 signing with an ephemeral in-memory key, and Core mempool preflight.
 - `DescriptorService`: descriptor checksums, normalization, address derivation, and wallet descriptors.
 - `TaprootService`: Taproot output and scriptPubKey inspection.
 - `IntegrationService`: JSON-RPC client examples, wallet RPC paths, SSE, and optional ZMQ configuration.
@@ -92,6 +92,7 @@ Services keep Bitcoin-specific behavior out of route handlers:
 - `TransactionLifecycleService`: the first executable scenario adapter. It uses only the session-owned wallet, rechecks regtest before every mutation, records structured Core output, and proves both a confirmed spend and a value-conservation rejection.
 - `RbfScenarioService`: proves opt-in sequence signaling, the original and replacement mempool states, Core's incremental-fee rejection, successful higher-fee replacement, original eviction, and replacement confirmation.
 - `MultisigPsbtScenarioService`: creates three session-owned one-key legacy signer wallets, proves that one signature cannot finalize a 2-of-3 PSBT, completes it with a second signer, and verifies preflight, broadcast, confirmation, evidence export, and owned-wallet cleanup.
+- `CltvTimelockScenarioService`: funds a real absolute-height P2WSH CLTV policy, pins premature and invalid-script rejections, advances regtest to the exact target, confirms the unchanged mature spend, drops its ephemeral signer reference, and exports redacted evidence.
 - `EvidenceService`: typed evidence capture that keeps Bitcoin Core output separate from BitScope interpretation, recursively redacts credentials and private-key material, emits canonical JSON, and attaches a hash-backed reference to the owning run.
 - `ScenarioArtifactStore`: bounded, run-scoped evidence files with server-generated paths, canonical-content checks, and SHA-256 verification on every read.
 - `ProofBundleService`: deterministic Markdown reports, conditional transcript/command/assertion files, SHA-256 manifests, and ZIP exports with fixed metadata. Bundles are evidence, not attestations or audits.

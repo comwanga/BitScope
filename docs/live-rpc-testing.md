@@ -42,6 +42,8 @@ The verified RBF test creates an original transaction at 2 sat/vB with `replacea
 
 The verified multisig PSBT test creates three session-owned legacy wallets with one signer key each, registers the same native-SegWit 2-of-3 policy, and imports its address watch-only before funding. Both signer calls use `finalize=false`: the first must leave exactly one partial signature and no extracted transaction, while the second must expose two partial signatures. A separate finalizer call must return `complete=true` before Core accepts, broadcasts, and confirms the spend. The node must be started with `-deprecatedrpc=create_bdb`. These local wallet contexts demonstrate staged threshold mechanics, not independent custody or production key separation.
 
+The verified CLTV test funds a P2WSH `<height> OP_CHECKLOCKTIMEVERIFY OP_DROP <pubkey> OP_CHECKSIG` output and locally signs its BIP143 witness with an ephemeral in-memory key. Pinned Core 28.1 must report `non-final` before maturity, reject final-sequence and low-nLockTime variants with `Locktime requirement not satisfied`, accept the unchanged valid transaction at the exact target height, and confirm it. Cleanup drops the signer reference and no private key enters RPC or proof artifacts; Python does not guarantee immediate zeroization of released memory.
+
 ## Common Failures
 
 ### Insufficient or Immature Funds

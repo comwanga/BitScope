@@ -97,6 +97,43 @@ class FundMultisigStep(ScenarioStepBase):
     output_txid_ref: ArtifactKey
 
 
+class PrepareCltvSignerStep(ScenarioStepBase):
+    type: Literal["prepare_cltv_signer"] = "prepare_cltv_signer"
+    phase: Literal[ScenarioStepPhase.SETUP] = ScenarioStepPhase.SETUP
+    signer_kind: Literal["ephemeral_software_key"] = "ephemeral_software_key"
+    output_signer_ref: ArtifactKey
+
+
+class CreateCltvPolicyStep(ScenarioStepBase):
+    type: Literal["create_cltv_policy"] = "create_cltv_policy"
+    phase: Literal[ScenarioStepPhase.SETUP] = ScenarioStepPhase.SETUP
+    signer_ref: ArtifactKey
+    blocks_from_tip: int = Field(ge=2, le=144)
+    output_policy_ref: ArtifactKey
+    output_lock_height_ref: ArtifactKey
+
+
+class FundCltvPolicyStep(ScenarioStepBase):
+    type: Literal["fund_cltv_policy"] = "fund_cltv_policy"
+    wallet_ref: ArtifactKey
+    policy_ref: ArtifactKey
+    amount_btc: PositiveBtcAmount
+    fee_rate_sat_vb: Decimal = Field(gt=0, le=10_000, max_digits=16, decimal_places=3)
+    output_funding_ref: ArtifactKey
+
+
+class CreateCltvSpendStep(ScenarioStepBase):
+    type: Literal["create_cltv_spend"] = "create_cltv_spend"
+    signer_ref: ArtifactKey
+    policy_ref: ArtifactKey
+    funding_ref: ArtifactKey
+    recipient_address_ref: ArtifactKey
+    lock_height_adjustment: int = Field(default=0, ge=-1, le=0)
+    sequence: int = Field(ge=0, le=4_294_967_295)
+    fee_sats: int = Field(ge=1, le=10_000_000)
+    output_transaction_ref: ArtifactKey
+
+
 class GenerateAddressStep(ScenarioStepBase):
     type: Literal["generate_address"] = "generate_address"
     wallet_ref: ArtifactKey
@@ -279,8 +316,15 @@ class AdvanceRelativeTimelockStep(ScenarioStepBase):
 class AdvanceAbsoluteTimelockStep(ScenarioStepBase):
     type: Literal["advance_absolute_timelock"] = "advance_absolute_timelock"
     address_ref: ArtifactKey
-    target_height: int = Field(ge=1, le=2_147_483_647)
+    target_height: int | None = Field(default=None, ge=1, le=2_147_483_647)
+    target_height_ref: ArtifactKey | None = None
     output_height_ref: ArtifactKey
+
+    @model_validator(mode="after")
+    def target_is_explicit(self) -> "AdvanceAbsoluteTimelockStep":
+        if (self.target_height is None) == (self.target_height_ref is None):
+            raise ValueError("Absolute timelock advancement requires exactly one target height source.")
+        return self
 
 
 class EvaluateAssertionsStep(ScenarioStepBase):
@@ -314,6 +358,10 @@ ScenarioStep = Annotated[
     | PrepareMultisigSignersStep
     | CreateMultisigAddressStep
     | FundMultisigStep
+    | PrepareCltvSignerStep
+    | CreateCltvPolicyStep
+    | FundCltvPolicyStep
+    | CreateCltvSpendStep
     | GenerateAddressStep
     | MineBlocksStep
     | SelectUtxosStep
@@ -455,6 +503,10 @@ MUTATING_STEP_TYPES = frozenset(
         "prepare_multisig_signers",
         "create_multisig_address",
         "fund_multisig",
+        "prepare_cltv_signer",
+        "create_cltv_policy",
+        "fund_cltv_policy",
+        "create_cltv_spend",
         "generate_address",
         "mine_blocks",
         "create_raw_transaction",

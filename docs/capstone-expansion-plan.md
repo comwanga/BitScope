@@ -72,7 +72,7 @@ The capstone expansion must extend these boundaries. It must not create a second
 | CPFP | `TransactionService.create_cpfp_child` | Child construction, signing, preflight, optional broadcast, existing live construction test | Parent-child lifecycle and package evidence; package economics still missing |
 | PSBT | `PsbtService` | Create, decode, wallet process with optional signing, finalize, and incomplete/error unit behavior | PSBT state capture and signer-step primitives |
 | Multisig | `MultisigService` | Key generation, address registration, funding, wallet PSBT spend, and existing live test | Foundational multisig scenario only after legacy compatibility is preserved |
-| Timelocks | `TimelockService` | Transaction-level nLockTime construction/preflight and CLTV/CSV script template decoding | Starting primitives; no complete CLTV/CSV branch spend lifecycle exists yet |
+| Timelocks | `TimelockService`, `CltvTimelockScenarioService` | Transaction-level nLockTime, CLTV/CSV templates, real P2WSH CLTV funding, ephemeral BIP143 signing, exact premature/script rejection, maturity, and confirmation | Absolute-height CLTV is proved; median-time CLTV and relative CSV remain future variants |
 | Script and OP_RETURN | `ScriptService` | Template construction, decoding, complete-transaction preflight, OP_RETURN build/sign/broadcast | Script evidence and OP_RETURN policy scenario |
 | Descriptors and Taproot inspection | `DescriptorService`, `TaprootService` | Descriptor normalization/derivation/listing and output inspection | Policy research and public descriptor evidence; not yet a signer orchestration layer |
 | Guided demo | `DemoService`, `DemoMode` | One-shot wallet/mine/send/decode flow and Markdown command log | UI patterns and command trail only; do not reuse it as a second scenario engine |
@@ -103,7 +103,7 @@ Specific gaps in existing features are:
 - RBF uses wallet `bumpfee`; it does not expose a deterministic insufficient-fee replacement attack with classified evidence.
 - CPFP does not calculate or assert parent, child, and package fee rates.
 - Multisig currently controls all signer keys in one wallet and does not demonstrate independent participant contexts or staged insufficient signatures.
-- Timelock support constructs nLockTime transactions and script templates, but does not fund and spend an actual CLTV/CSV policy branch before and after maturity. The response field named `sequence_hex` currently contains full funded transaction hex and must not be treated as normalized sequence evidence.
+- The foundational timelock scenario now funds and spends a real absolute-height CLTV policy before and after maturity. Relative CSV and median-time CLTV remain unproved, and the older transaction helper's `sequence_hex` field still contains full funded transaction hex rather than normalized sequence evidence.
 - OP_RETURN supports bounded payload construction, but the negative standardness case has not been proved against the pinned node.
 - Demo Mode does not use persistent lab sessions, does not run attacks, does not classify failures, and does not own or clean up its wallets.
 - The frontend has no persistent-lab API types/helpers despite backend lab routes, and no scenarios, evidence, timeline, curriculum, challenge, policy comparison, or reviewer pages.
@@ -385,13 +385,13 @@ Do not assume the flagship three-branch policy is supported. Implement the prove
 
 ### Phase 3 - Foundational scenarios
 
-- [ ] Implement transaction lifecycle, RBF, multisig PSBT, and one real timelock scenario.
+- [x] Implement transaction lifecycle, RBF, multisig PSBT, and one real timelock scenario.
   - [x] Transaction lifecycle: confirmed positive path, pinned overspend rejection, deterministic evidence, and verified cleanup.
   - [x] RBF replacement: opt-in signaling, exact insufficient-fee rejection, original eviction, replacement confirmation, evidence, and cleanup.
   - [x] Multisig PSBT: one-key signer contexts, one-signature incompleteness, 2-of-3 completion, preflight, confirmation, deterministic evidence, and cleanup.
-  - [ ] One real timelock spend.
+  - [x] CLTV timelock: real P2WSH funding, ephemeral BIP143 signing, exact premature/final-sequence/low-nLockTime rejections, bounded maturity, confirmation, deterministic evidence, and cleanup.
 - [ ] Add CPFP and OP_RETURN only after the mandatory four are complete or in parallel without weakening them.
-- [ ] Give every scenario a meaningful proved negative path, live test, evidence, and cleanup.
+- [x] Give every mandatory foundational scenario a meaningful proved negative path, live test, evidence, and cleanup.
 
 ### Phase 4 - Community Treasury Recovery
 
@@ -447,8 +447,6 @@ Do not assume the flagship three-branch policy is supported. Implement the prove
 - [ ] Inspect tags and release history before selecting a semantic version.
 - [ ] Prepare release notes, migration notes, screenshots, verification commands, and limitations.
 
-## Phase 0 gate decision
+## Current delivery status
 
-Phase 0 documentation and deterministic baselines are complete. No production capstone feature was added. Phase 1 may begin after the pre-existing credential-like example values are removed/rotated and the team accepts that the pinned live-node baseline remains locally unverified until Docker or another disposable Bitcoin Core 28.1 runtime is available.
-
-The first Phase 1 commit should be limited to typed scenario definitions, state models, and their validation tests. Persistence, routes, and execution should remain separate logical commits so each safety boundary can be reviewed independently.
+Phases 1 and 2 and the mandatory Phase 3 foundation are implemented. Transaction lifecycle, RBF replacement, multisig PSBT, and real absolute-height CLTV runs now use typed definitions, persistent state, protected mutation routes, deterministic proof bundles, proved negative paths, session-owned cleanup, and disposable Core 28.1 live tests. Optional CPFP and OP_RETURN scenarios remain deferred while Phase 4 policy research begins.

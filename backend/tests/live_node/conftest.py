@@ -52,9 +52,15 @@ def ensure_mature_balance(client: BitcoinRpcClient, wallet_name: str, minimum_bt
 
     balances = client.call("getbalances", [], wallet_name=wallet_name)
     trusted = _wallet_balance(balances, "trusted")
+    additional_blocks = 0
+    while trusted < minimum_btc and additional_blocks < 100:
+        client.call("generatetoaddress", [1, address])
+        additional_blocks += 1
+        balances = client.call("getbalances", [], wallet_name=wallet_name)
+        trusted = _wallet_balance(balances, "trusted")
     assert trusted >= minimum_btc, (
         "Test wallet still has insufficient mature balance after mining. "
-        f"trusted={trusted}, required={minimum_btc}"
+        f"trusted={trusted}, required={minimum_btc}, additional_blocks={additional_blocks}"
     )
 
 

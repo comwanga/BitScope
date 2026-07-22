@@ -5,6 +5,11 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from app.errors import BitScopeError
+from app.models.attack import (
+    AttackContext,
+    AttackFeature,
+    MempoolAttackObservation,
+)
 from app.models.evidence import EvidenceRecord
 from app.models.lab import LabAction, LabSession
 from app.models.scenario import (
@@ -19,6 +24,7 @@ from app.models.scenario import (
 )
 from app.rpc.capabilities import RegtestMutationRpcClient, RpcTransport
 from app.services.lab_session_service import LabSessionService
+from app.services.attack_verification_service import AttackVerificationService
 from app.services.lab_session_store import LabSessionStore
 from app.services.network_safety import NetworkSafetyGuard
 from app.services.scenario_execution import ScenarioExecution, ScenarioExecutionError
@@ -34,6 +40,7 @@ class TransactionLifecycleService:
     def __init__(self, rpc_client: RpcTransport, lab_store: LabSessionStore) -> None:
         self.rpc = RegtestMutationRpcClient(rpc_client)
         self.lab_store = lab_store
+        self.attacks = AttackVerificationService()
 
     def execute(self, run: ScenarioRun, definition: ScenarioDefinition) -> ScenarioExecution:
         captured_at = datetime.now(UTC)
@@ -152,6 +159,19 @@ class TransactionLifecycleService:
             if decoded_confirmed.get("txid") != txid:
                 raise self._invalid_response("decoderawtransaction", "The confirmed transaction id changed unexpectedly.")
 
+            overspend_decision = self.attacks.require_applicable(
+                self.attacks.assess(
+                    "transaction-lifecycle.output-modification",
+                    AttackContext(
+                        scenario_id=run.scenario_id,
+                        available_features=[
+                            AttackFeature.RAW_TRANSACTION,
+                            AttackFeature.MUTABLE_OUTPUTS,
+                            AttackFeature.MEMPOOL_PREFLIGHT,
+                        ],
+                    ),
+                )
+            )
             current_step = "construct_overspend"
             attack_input = self._input_reference(selected_utxos[1])
             attack_output_amount = self._utxo_amount(selected_utxos[1]) + SATOSHI
@@ -175,17 +195,20 @@ class TransactionLifecycleService:
                 self.rpc.call("testmempoolaccept", [[attack_signed_hex]])
             )
             reject_reason = self._safe_reject_reason(attack_acceptance)
-            if attack_acceptance.get("allowed") is not False or reject_reason != EXPECTED_OVERSPEND_REJECTION:
-                raise BitScopeError(
-                    "SCENARIO_NEGATIVE_ASSERTION_MISMATCH",
-                    "Bitcoin Core did not return the pinned overspend rejection expected by this scenario.",
-                    409,
-                    {
-                        "expected_reject_reason": EXPECTED_OVERSPEND_REJECTION,
-                        "observed_allowed": attack_acceptance.get("allowed"),
-                        "observed_reject_reason": reject_reason,
-                    },
+            overspend_attack = self.attacks.require_expected(
+                self.attacks.verify(
+                    overspend_decision,
+                    MempoolAttackObservation(
+                        allowed=bool(attack_acceptance.get("allowed")),
+                        reject_reason=reject_reason,
+                        raw_safe_details=attack_acceptance,
+                    ),
+                ),
+                mismatch_code="SCENARIO_NEGATIVE_ASSERTION_MISMATCH",
+                safe_message=(
+                    "Bitcoin Core did not return the pinned overspend rejection expected by this scenario."
                 )
+            )
 
             self._record_session_outputs(
                 session,
@@ -220,7 +243,12 @@ class TransactionLifecycleService:
         )
         step_results = self._step_results(captured_at, reject_reason)
         assertion_results = self._assertion_results()
-        return ScenarioExecution(evidence_records, step_results, assertion_results)
+        return ScenarioExecution(
+            evidence_records,
+            step_results,
+            assertion_results,
+            attack_results=[overspend_attack],
+        )
 
     def cleanup(self, run: ScenarioRun) -> list[str]:
         _, unloaded = LabSessionService(self.rpc.transport, self.lab_store).cleanup(run.lab_session_id)

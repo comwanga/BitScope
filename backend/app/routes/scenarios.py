@@ -16,6 +16,7 @@ from app.models.scenario_api import (
     ScenarioRunResetResponse,
 )
 from app.models.proof import ScenarioEvidenceResponse
+from app.models.lifecycle import TransactionLifecycleTimeline
 from app.rpc.client import BitcoinRpcClient
 from app.security import require_mutation_access
 from app.services.scenario_catalog import DEFAULT_SCENARIO_CATALOG, ScenarioCatalog
@@ -112,6 +113,15 @@ def get_scenario_evidence(
     service: ProofBundleService = Depends(get_proof_bundle_service),
 ) -> ScenarioEvidenceResponse:
     return service.evidence(run_id, lab_session_id)
+
+
+@run_router.get("/{run_id}/lifecycle", response_model=TransactionLifecycleTimeline)
+def get_scenario_lifecycle(
+    run_id: UUID,
+    lab_session_id: str = Query(min_length=8, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$"),
+    service: ProofBundleService = Depends(get_proof_bundle_service),
+) -> TransactionLifecycleTimeline:
+    return service.lifecycle(run_id, lab_session_id)
 
 
 @run_router.get("/{run_id}/report")

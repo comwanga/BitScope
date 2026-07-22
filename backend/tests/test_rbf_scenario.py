@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -6,6 +7,7 @@ from app.models.lab import LabSession
 from app.models.scenario import CleanupStatus, ScenarioRunState
 from app.rpc.errors import RpcError
 from app.services.evidence_service import EvidenceService
+from app.services.challenge_service import ChallengeService
 from app.services.lab_session_store import LabSessionStore
 from app.services.proof_bundle_service import ProofBundleService
 from app.services.scenario_artifact_store import ScenarioArtifactStore
@@ -192,13 +194,41 @@ def test_rbf_scenario_replaces_confirms_exports_and_cleans_up(tmp_path: Path) ->
     assert "evidence/rbf.insufficient-fee.json" in first.files
     assert "evidence/rbf.replacement.json" in first.files
     assert "evidence/rbf.confirmed.json" in first.files
+    assert "evidence/lifecycle.timeline.json" in first.files
+    assert "evidence/lifecycle.cleanup.json" in first.files
+    lifecycle = json.loads(first.files["lifecycle.json"])
+    replacement_event = next(event for event in lifecycle["events"] if event["event_type"] == "transaction_replaced")
+    assert replacement_event["transaction_id"] == REPLACEMENT_TXID
+    assert replacement_event["relationship"]["relationship_type"] == "replaces"
+    assert replacement_event["relationship"]["related_txid"] == ORIGINAL_TXID
+    assert lifecycle["events"][-1]["event_type"] == "scenario_cleaned_up"
+    assert proof_service.lifecycle(verified.run_id, "rbf_session").model_dump(mode="json") == lifecycle
+    attacks = json.loads(first.files["evidence/attacks.summary.json"])["core_output"]["result"]
+    assert attacks[0]["attack_type"] == "rbf_replacement_policy_failure"
+    assert attacks[0]["classification"] == "mempool_policy"
     assert b"insufficient-replacement-fee" in first.files["run.json"]
     assert all(b"rbf-secret" not in content for content in first.files.values())
+
+    challenge = ChallengeService(run_store, service.artifact_store).verify(
+        "replace-rbf-higher-fee",
+        verified.run_id,
+        "rbf_session",
+    )
+    assert challenge.completed is True
+    assert challenge.solution_unlocked is True
+    assert challenge.validation_source == "persisted_bitcoin_core_scenario_evidence"
+    assert {reference.evidence_id for reference in challenge.evidence} >= {
+        "node.context",
+        "rbf.replacement",
+        "rbf.confirmed",
+        "lifecycle.cleanup",
+    }
+    assert all(reference.content_sha256 for reference in challenge.evidence)
 
 
 def test_rbf_scenario_fails_closed_on_different_low_fee_rejection(tmp_path: Path) -> None:
     rpc = RbfRpcClient(insufficient_message="Transaction has descendants in the wallet")
-    service, _, lab_store = build_service(tmp_path, rpc)
+    service, run_store, lab_store = build_service(tmp_path, rpc)
     created = service.create_run("rbf-replacement", "rbf_session")
     ready = service.advance(created.run_id, "rbf_session", expected_revision=0)
 
@@ -208,8 +238,16 @@ def test_rbf_scenario_fails_closed_on_different_low_fee_rejection(tmp_path: Path
     assert failed.cleanup_status == CleanupStatus.COMPLETED
     assert failed.failed_steps == ["reject_insufficient_bump"]
     assert failed.unexpected_failures[0].code == "SCENARIO_RBF_REJECTION_MISMATCH"
+    assert failed.unexpected_failures[0].attack_id == "rbf-replacement.replacement-policy"
+    assert failed.unexpected_failures[0].raw_safe_details["rpc_code"] == -8
     session = lab_store.get("rbf_session")
     assert session is not None and session.status == "cleaned"
+    lifecycle = ProofBundleService(
+        run_store,
+        service.artifact_store,
+        DEFAULT_SCENARIO_CATALOG,
+    ).lifecycle(failed.run_id, "rbf_session")
+    assert [event.event_type.value for event in lifecycle.events] == ["scenario_cleaned_up"]
 
 
 def test_default_catalog_exposes_reviewed_rbf_scenario() -> None:

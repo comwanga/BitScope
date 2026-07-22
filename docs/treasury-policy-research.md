@@ -113,6 +113,12 @@ The existing allowlists already include `getdescriptorinfo`, `deriveaddresses`, 
 - **Time-based CSV and CLTV variants:** not part of the proved policy. Version 1 uses relative block delays only.
 - **Ranged xpub policy:** Core documents it, but the proof deliberately uses fresh one-time public keys to avoid descriptor parsing and derivation-origin complexity in the first flagship version.
 
-## Implementation recommendation
+## Implementation foundation
 
-Proceed with the full three-path P2WSH policy. The next task should add typed treasury policy and participant models plus a narrowly scoped service that reproduces this proof through the scenario engine. The implementation must retain the exact `non-BIP68-final` classifier, incorrect-sequence PSBT-incomplete result, signer threshold checks, public decision-tree data, deterministic evidence, and session-owned cleanup.
+The full three-path P2WSH policy now has a typed public domain model in `backend/app/models/treasury.py`. It fixes version 1 to three independent 2-of-3 groups, validates compressed public keys and isolated wallet contexts, bounds both relative block delays to BIP68's 16-bit block range, requires the emergency delay to follow the recovery delay, and generates decision-tree branches in deterministic signer-position order.
+
+`TreasuryPolicyService` deliberately owns only public Miniscript composition, Core normalization and address derivation, and import into a private-keys-disabled coordinator wallet. It fails closed unless Core reports the descriptor as non-ranged, solvable, and free of private keys, and it repeats the live regtest check immediately before import. It does not create wallets, fund outputs, build or sign PSBTs, advance the chain, or clean up resources; those remain responsibilities of the scenario executor and session lifecycle.
+
+The typed `community-treasury-recovery` scenario definition and executor now wrap this service. They retain the exact `non-BIP68-final` classifier, incorrect-sequence PSBT-incomplete result, signer threshold checks, public decision-tree evidence, deterministic artifacts, and session-owned cleanup across all three branches.
+
+The integrated proof run is `backend/tests/live_node/test_community_treasury_scenario_live.py`. It passed against an isolated Core 28.1 node verified with the same official archive checksum above, completing all 53 steps, 25 assertions, six exact expected-failure classifications, cleanup, and two byte-identical Proof of Spendability exports. The specialized JSON and Markdown reports fail closed unless the runtime is exactly Core 28.1, the public materialized policy is present, every spendability check succeeds or is rejected as expected, and cleanup completes.

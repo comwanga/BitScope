@@ -3,7 +3,14 @@ from __future__ import annotations
 from decimal import Decimal
 from uuid import uuid4
 
+from app.models.treasury import (
+    TreasuryParticipant,
+    TreasuryParticipantGroup,
+    TreasuryParticipantRole,
+    TreasuryPolicy,
+)
 from app.rpc.client import BitcoinRpcClient
+from app.services.treasury_policy_service import TreasuryPolicyService
 
 
 RECOVERY_DELAY = 5
@@ -49,28 +56,36 @@ def test_live_core_28_1_community_treasury_policy_poc(
             wallets,
         )
 
-        descriptor = _treasury_descriptor(
-            rpc,
-            operator_keys,
-            recovery_keys,
-            emergency_keys,
+        policy = TreasuryPolicy(
+            recovery_delay_blocks=RECOVERY_DELAY,
+            emergency_delay_blocks=EMERGENCY_DELAY,
+            operators=_participant_group(
+                TreasuryParticipantRole.OPERATOR,
+                operators,
+                operator_keys,
+            ),
+            recovery=_participant_group(
+                TreasuryParticipantRole.RECOVERY,
+                recoverers,
+                recovery_keys,
+            ),
+            emergency=_participant_group(
+                TreasuryParticipantRole.EMERGENCY,
+                emergencies,
+                emergency_keys,
+            ),
         )
-        descriptor_info = _dict(
-            rpc.call("getdescriptorinfo", [descriptor]),
-            "getdescriptorinfo",
+        policy_service = TreasuryPolicyService(rpc)
+        materialized = policy_service.materialize(policy)
+        imported = policy_service.import_into_coordinator(
+            materialized,
+            coordinator,
+            label="treasury-policy",
         )
-        normalized = _string(descriptor_info.get("descriptor"), "getdescriptorinfo")
-        assert descriptor_info.get("issolvable") is True
-        assert descriptor_info.get("hasprivatekeys") is False
-        derived = rpc.call("deriveaddresses", [normalized])
-        assert isinstance(derived, list) and len(derived) == 1
-        policy_address = _string(derived[0], "deriveaddresses")
-        imported = rpc.call(
-            "importdescriptors",
-            [[{"desc": normalized, "timestamp": "now", "active": False, "label": "treasury-policy"}]],
-            wallet_name=coordinator,
-        )
-        assert isinstance(imported, list) and imported == [{"success": True}]
+        assert materialized.is_solvable is True
+        assert materialized.has_private_keys is False
+        assert imported.imported is True
+        policy_address = materialized.address
         coordinator_info = _dict(
             rpc.call("getwalletinfo", wallet_name=coordinator),
             "getwalletinfo",
@@ -189,22 +204,28 @@ def test_live_core_28_1_community_treasury_policy_poc(
     assert not set(wallets).intersection(loaded)
 
 
-def _treasury_descriptor(
-    rpc: BitcoinRpcClient,
-    operator_keys: list[str],
-    recovery_keys: list[str],
-    emergency_keys: list[str],
-) -> str:
-    script = (
-        "or_i("
-        f"multi(2,{','.join(operator_keys)}),"
-        "or_i("
-        f"and_v(v:older({RECOVERY_DELAY}),multi(2,{','.join(recovery_keys)})),"
-        f"and_v(v:older({EMERGENCY_DELAY}),multi(2,{','.join(emergency_keys)}))"
-        ")"
-        ")"
+def _participant_group(
+    role: TreasuryParticipantRole,
+    wallets: list[str],
+    public_keys: list[str],
+) -> TreasuryParticipantGroup:
+    assert len(wallets) == 3 and len(public_keys) == 3
+    return TreasuryParticipantGroup(
+        role=role,
+        participants=[
+            TreasuryParticipant(
+                participant_id=f"{role.value}-{position}",
+                role=role,
+                position=position,
+                wallet_name=wallet,
+                public_key=public_key,
+            )
+            for position, (wallet, public_key) in enumerate(
+                zip(wallets, public_keys, strict=True),
+                start=1,
+            )
+        ],
     )
-    return f"wsh({script})"
 
 
 def _create_wallet(

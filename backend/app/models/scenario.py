@@ -7,7 +7,7 @@ from pathlib import PurePosixPath
 from typing import Annotated, ClassVar, Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 
 Identifier = Annotated[str, Field(min_length=2, max_length=64, pattern=r"^[a-z][a-z0-9_-]*$")]
@@ -95,6 +95,73 @@ class FundMultisigStep(ScenarioStepBase):
     amount_btc: PositiveBtcAmount
     fee_rate_sat_vb: Decimal = Field(gt=0, le=10_000, max_digits=16, decimal_places=3)
     output_txid_ref: ArtifactKey
+
+
+class PrepareTreasuryParticipantsStep(ScenarioStepBase):
+    type: Literal["prepare_treasury_participants"] = "prepare_treasury_participants"
+    phase: Literal[ScenarioStepPhase.SETUP] = ScenarioStepPhase.SETUP
+    signers_per_group: Literal[3] = 3
+    required_signatures: Literal[2] = 2
+    output_participants_ref: ArtifactKey
+    output_coordinator_wallet_ref: ArtifactKey
+
+
+class MaterializeTreasuryPolicyStep(ScenarioStepBase):
+    type: Literal["materialize_treasury_policy"] = "materialize_treasury_policy"
+    phase: Literal[ScenarioStepPhase.SETUP] = ScenarioStepPhase.SETUP
+    participants_ref: ArtifactKey
+    coordinator_wallet_ref: ArtifactKey
+    recovery_delay_blocks: int = Field(ge=1, le=65_535)
+    emergency_delay_blocks: int = Field(ge=2, le=65_535)
+    output_policy_ref: ArtifactKey
+    output_address_ref: ArtifactKey
+    output_decision_tree_ref: ArtifactKey
+
+    @model_validator(mode="after")
+    def delays_are_ordered(self) -> "MaterializeTreasuryPolicyStep":
+        if self.emergency_delay_blocks <= self.recovery_delay_blocks:
+            raise ValueError("The treasury emergency delay must be greater than the recovery delay.")
+        return self
+
+
+class FundTreasuryPolicyStep(ScenarioStepBase):
+    type: Literal["fund_treasury_policy"] = "fund_treasury_policy"
+    wallet_ref: ArtifactKey
+    policy_ref: ArtifactKey
+    branch: Literal["immediate", "recovery", "emergency"]
+    amount_btc: PositiveBtcAmount
+    fee_rate_sat_vb: Decimal = Field(gt=0, le=10_000, max_digits=16, decimal_places=3)
+    output_funding_ref: ArtifactKey
+
+
+class CreateTreasurySpendPsbtStep(ScenarioStepBase):
+    type: Literal["create_treasury_spend_psbt"] = "create_treasury_spend_psbt"
+    coordinator_wallet_ref: ArtifactKey
+    funding_ref: ArtifactKey
+    recipient_address_ref: ArtifactKey
+    branch: Literal["immediate", "recovery", "emergency"]
+    sequence: int = Field(ge=0, le=4_294_967_295)
+    fee_sats: int = Field(ge=1, le=10_000_000)
+    output_psbt_ref: ArtifactKey
+
+
+class SignTreasuryPsbtStep(ScenarioStepBase):
+    type: Literal["sign_treasury_psbt"] = "sign_treasury_psbt"
+    participants_ref: ArtifactKey
+    psbt_ref: ArtifactKey
+    signer_role: Literal["operator", "recovery", "emergency"]
+    signer_positions: list[int] = Field(min_length=1, max_length=2)
+    output_psbt_ref: ArtifactKey
+    output_signature_count_ref: ArtifactKey
+
+    @field_validator("signer_positions")
+    @classmethod
+    def signer_positions_are_supported_and_unique(cls, value: list[int]) -> list[int]:
+        if any(position < 1 or position > 3 for position in value):
+            raise ValueError("Treasury signer positions must be between 1 and 3.")
+        if len(value) != len(set(value)):
+            raise ValueError("Treasury signer positions must be unique within one signing step.")
+        return value
 
 
 class PrepareCltvSignerStep(ScenarioStepBase):
@@ -358,6 +425,11 @@ ScenarioStep = Annotated[
     | PrepareMultisigSignersStep
     | CreateMultisigAddressStep
     | FundMultisigStep
+    | PrepareTreasuryParticipantsStep
+    | MaterializeTreasuryPolicyStep
+    | FundTreasuryPolicyStep
+    | CreateTreasurySpendPsbtStep
+    | SignTreasuryPsbtStep
     | PrepareCltvSignerStep
     | CreateCltvPolicyStep
     | FundCltvPolicyStep
@@ -503,6 +575,11 @@ MUTATING_STEP_TYPES = frozenset(
         "prepare_multisig_signers",
         "create_multisig_address",
         "fund_multisig",
+        "prepare_treasury_participants",
+        "materialize_treasury_policy",
+        "fund_treasury_policy",
+        "create_treasury_spend_psbt",
+        "sign_treasury_psbt",
         "prepare_cltv_signer",
         "create_cltv_policy",
         "fund_cltv_policy",
@@ -760,6 +837,8 @@ class ScenarioFailure(StrictScenarioModel):
     code: str = Field(min_length=1, max_length=120)
     safe_message: str = Field(min_length=1, max_length=2_000)
     rpc_code: int | None = None
+    attack_id: ArtifactKey | None = None
+    raw_safe_details: JsonValue = None
     evidence_ids: list[ArtifactKey] = Field(default_factory=list, max_length=32)
 
 

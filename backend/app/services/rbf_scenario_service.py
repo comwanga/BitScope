@@ -4,6 +4,13 @@ import json
 from datetime import UTC, datetime
 
 from app.errors import BitScopeError
+from app.models.attack import (
+    AttackApplicabilityDecision,
+    AttackContext,
+    AttackFeature,
+    AttackVerificationResult,
+    RpcErrorAttackObservation,
+)
 from app.models.evidence import EvidenceRecord
 from app.models.lab import LabAction, LabSession
 from app.models.scenario import (
@@ -19,6 +26,7 @@ from app.models.scenario import (
 from app.rpc.capabilities import RegtestMutationRpcClient, RpcTransport
 from app.rpc.errors import RpcError
 from app.services.lab_session_service import LabSessionService
+from app.services.attack_verification_service import AttackVerificationService
 from app.services.lab_session_store import LabSessionStore
 from app.services.network_safety import NetworkSafetyGuard
 from app.services.scenario_execution import ScenarioExecution, ScenarioExecutionError
@@ -26,8 +34,6 @@ from app.services.transaction_service import TransactionService
 
 
 INSUFFICIENT_BUMP_CODE = "insufficient-replacement-fee"
-INSUFFICIENT_BUMP_RPC_CODE = -8
-INSUFFICIENT_BUMP_MARKERS = ("insufficient total fee", "oldfee", "incrementalfee")
 
 
 class RbfScenarioService:
@@ -37,6 +43,7 @@ class RbfScenarioService:
         self.rpc = RegtestMutationRpcClient(rpc_client)
         self.transaction_service = TransactionService(rpc_client)
         self.lab_store = lab_store
+        self.attacks = AttackVerificationService()
 
     def execute(self, run: ScenarioRun, definition: ScenarioDefinition) -> ScenarioExecution:
         captured_at = datetime.now(UTC)
@@ -97,10 +104,24 @@ class RbfScenarioService:
                 raise self._invalid_response("getmempoolentry", "Bitcoin Core returned an invalid original fee rate.")
 
             current_step = "reject_insufficient_bump"
-            insufficient_error = self._expect_insufficient_bump(
+            insufficient_decision = self.attacks.require_applicable(
+                self.attacks.assess(
+                    "rbf-replacement.replacement-policy",
+                    AttackContext(
+                        scenario_id=run.scenario_id,
+                        available_features=[
+                            AttackFeature.WALLET_TRANSACTION,
+                            AttackFeature.RBF_SIGNALING,
+                            AttackFeature.RPC_ERROR,
+                        ],
+                    ),
+                )
+            )
+            insufficient_error, insufficient_attack = self._expect_insufficient_bump(
                 wallet_name,
                 original_txid,
                 float(observed_fee_rate),
+                insufficient_decision,
             )
 
             current_step = "replace_transaction"
@@ -190,6 +211,7 @@ class RbfScenarioService:
             evidence_records=evidence_records,
             step_results=self._step_results(captured_at, insufficient_error),
             assertion_results=self._assertion_results(),
+            attack_results=[insufficient_attack],
         )
 
     def cleanup(self, run: ScenarioRun) -> list[str]:
@@ -264,7 +286,8 @@ class RbfScenarioService:
         wallet_name: str,
         txid: str,
         observed_fee_rate: float,
-    ) -> RpcError:
+        decision: AttackApplicabilityDecision,
+    ) -> tuple[RpcError, AttackVerificationResult]:
         try:
             self.transaction_service.bump_rbf_transaction(
                 wallet_name,
@@ -275,20 +298,32 @@ class RbfScenarioService:
         except RpcError as exc:
             rpc_code = exc.details.get("rpc_code")
             message = exc.details.get("rpc_message")
-            normalized = message.casefold().replace(" ", "") if isinstance(message, str) else ""
-            markers = tuple(marker.replace(" ", "") for marker in INSUFFICIENT_BUMP_MARKERS)
-            if rpc_code == INSUFFICIENT_BUMP_RPC_CODE and all(marker in normalized for marker in markers):
-                return exc
-            raise BitScopeError(
-                "SCENARIO_RBF_REJECTION_MISMATCH",
-                "Bitcoin Core rejected the insufficient bump for a different reason than expected.",
-                409,
-                {
-                    "rpc_method": "bumpfee",
-                    "rpc_code": rpc_code,
-                    "rpc_message": message if isinstance(message, str) else "No RPC message returned.",
-                },
-            ) from exc
+            result = self.attacks.require_expected(
+                self.attacks.verify(
+                    decision,
+                    RpcErrorAttackObservation(
+                        rpc_method="bumpfee",
+                        rpc_code=rpc_code if isinstance(rpc_code, int) else 0,
+                        rpc_message=(
+                            message if isinstance(message, str) else "No RPC message returned."
+                        ),
+                        raw_safe_details={
+                            "rpc_method": "bumpfee",
+                            "rpc_code": rpc_code if isinstance(rpc_code, int) else None,
+                            "rpc_message": (
+                                message
+                                if isinstance(message, str)
+                                else "No RPC message returned."
+                            ),
+                        },
+                    ),
+                ),
+                mismatch_code="SCENARIO_RBF_REJECTION_MISMATCH",
+                safe_message=(
+                    "Bitcoin Core rejected the insufficient bump for a different reason than expected."
+                ),
+            )
+            return exc, result
         raise BitScopeError(
             "SCENARIO_RBF_INSUFFICIENT_BUMP_ACCEPTED",
             "Bitcoin Core unexpectedly accepted a replacement without the required fee increase.",

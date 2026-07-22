@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -167,6 +168,17 @@ def test_transaction_lifecycle_runs_to_verified_bundle_and_cleans_up(tmp_path: P
     assert first.manifest.final_result.value == "verified"
     assert "evidence/transaction.confirmed.json" in first.files
     assert "evidence/transaction.overspend-rejection.json" in first.files
+    assert "evidence/attacks.summary.json" in first.files
+    lifecycle = json.loads(first.files["lifecycle.json"])
+    event_types = [event["event_type"] for event in lifecycle["events"]]
+    assert "transaction_confirmed" in event_types
+    assert "transaction_replaced" not in event_types
+    assert "child_transaction_created" not in event_types
+    assert event_types[-1] == "scenario_cleaned_up"
+    attacks = json.loads(first.files["evidence/attacks.summary.json"])["core_output"]["result"]
+    assert [(item["attack_type"], item["status"]) for item in attacks] == [
+        ("output_modification", "expected_failure")
+    ]
     assert "assertions.json" in first.files
     assert b"bad-txns-in-belowout" in first.files["assertions.json"]
     assert all(b"lifecycle-secret" not in content for content in first.files.values())
@@ -188,9 +200,12 @@ def test_transaction_lifecycle_fails_and_cleans_up_on_wrong_negative_result(tmp_
     assert failed.unexpected_failures[0].safe_message == (
         "Bitcoin Core did not return the pinned overspend rejection expected by this scenario."
     )
+    assert failed.unexpected_failures[0].attack_id == "transaction-lifecycle.output-modification"
+    assert failed.unexpected_failures[0].raw_safe_details["reject-reason"] == "missing-inputs"
     assert [reference.evidence_id for reference in failed.evidence] == [
         "node.context",
         "failure.reject_overspend",
+        "lifecycle.cleanup",
     ]
     cleaned_session = lab_store.get("lifecycle_session")
     assert cleaned_session is not None and cleaned_session.status == "cleaned"
@@ -257,5 +272,6 @@ def test_transaction_lifecycle_cleans_up_after_evidence_checkpoint_failure(
     evidence_directory = service.artifact_store.root / str(failed.run_id) / "evidence"
     assert sorted(path.name for path in evidence_directory.iterdir()) == [
         "failure.export_proof.json",
+        "lifecycle.cleanup.json",
         "node.context.json",
     ]

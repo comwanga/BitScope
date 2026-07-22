@@ -2,17 +2,39 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import shlex
 from hashlib import sha256
 from pathlib import PurePosixPath
+from typing import Literal
 from uuid import UUID
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from app.errors import BitScopeError
 from app.models.evidence import EvidenceRecord
-from app.models.proof import ProofBundle, ProofFileManifestEntry, ProofManifest, ScenarioEvidenceResponse
-from app.models.scenario import EvidenceKind, ScenarioDefinition, ScenarioFailure, ScenarioRun
+from app.models.lifecycle import TransactionLifecycleTimeline
+from app.models.proof import (
+    ProofBundle,
+    ProofFileManifestEntry,
+    ProofManifest,
+    ScenarioEvidenceResponse,
+    SpendabilityCheckStatus,
+    TreasuryProofOfSpendability,
+    TreasuryProofPolicy,
+    TreasurySpendabilityCheck,
+)
+from app.models.scenario import (
+    AssertionResultStatus,
+    CleanupStatus,
+    EvidenceKind,
+    ScenarioDefinition,
+    ScenarioFailure,
+    ScenarioFinalResult,
+    ScenarioRun,
+)
+from app.models.treasury import MaterializedTreasuryPolicy
 from app.services.evidence_service import EvidenceRedactor
+from app.services.lifecycle_recorder import LifecycleRecorder
 from app.services.scenario_artifact_store import ScenarioArtifactStore
 from app.services.scenario_catalog import ScenarioCatalog
 from app.services.scenario_run_store import ScenarioRunStore
@@ -42,6 +64,7 @@ class ProofBundleService:
         self.catalog = catalog
         self.redactor = redactor or EvidenceRedactor()
         self.max_bundle_bytes = max_bundle_bytes
+        self.lifecycle_recorder = LifecycleRecorder(self.redactor)
 
     def evidence(self, run_id: UUID, lab_session_id: str) -> ScenarioEvidenceResponse:
         run = self._get_run(run_id, lab_session_id)
@@ -55,15 +78,29 @@ class ProofBundleService:
         run = self._get_run(run_id, lab_session_id)
         definition = self.catalog.get_version(run.scenario_id, run.scenario_version)
         records = self.artifact_store.list_evidence(run, self.max_bundle_bytes)
-        return self._render_report(definition, self._redact_run(run), records)
+        safe_run = self._redact_run(run)
+        proof = self._proof_of_spendability(safe_run, records)
+        if proof is not None:
+            return self._render_proof_of_spendability(proof)
+        return self._render_report(definition, safe_run, records)
+
+    def lifecycle(self, run_id: UUID, lab_session_id: str) -> TransactionLifecycleTimeline:
+        run = self._get_run(run_id, lab_session_id)
+        records = self.artifact_store.list_evidence(run, self.max_bundle_bytes)
+        return self.lifecycle_recorder.timeline(self._redact_run(run), records)
 
     def bundle(self, run_id: UUID, lab_session_id: str) -> ProofBundle:
         run = self._get_run(run_id, lab_session_id)
         definition = self.catalog.get_version(run.scenario_id, run.scenario_version)
         records = self.artifact_store.list_evidence(run, self.max_bundle_bytes)
         safe_run = self._redact_run(run)
-        report = self._render_report(definition, safe_run, records)
-        files = self._bundle_files(definition, safe_run, records, report)
+        proof = self._proof_of_spendability(safe_run, records)
+        report = (
+            self._render_proof_of_spendability(proof)
+            if proof is not None
+            else self._render_report(definition, safe_run, records)
+        )
+        files = self._bundle_files(definition, safe_run, records, report, proof)
         self._require_bundle_size(files)
 
         entries = [
@@ -95,6 +132,7 @@ class ProofBundleService:
         return ProofBundle(
             manifest=manifest,
             report_markdown=report,
+            proof_of_spendability=proof,
             files=ordered_files,
             zip_bytes=zip_bytes,
         )
@@ -110,6 +148,9 @@ class ProofBundleService:
         for collection in ("expected_failures", "unexpected_failures"):
             for failure in document[collection]:
                 failure["safe_message"] = self.redactor.redact(failure["safe_message"])
+                failure["raw_safe_details"] = self.redactor.redact(
+                    failure.get("raw_safe_details")
+                )
         for reference in document["evidence"]:
             reference["label"] = self.redactor.redact(reference["label"])
         return ScenarioRun.model_validate(document)
@@ -131,12 +172,22 @@ class ProofBundleService:
         run: ScenarioRun,
         records: list[EvidenceRecord],
         report: str,
+        proof_of_spendability: TreasuryProofOfSpendability | None,
     ) -> dict[str, bytes]:
         files: dict[str, bytes] = {
             "scenario.json": self._canonical_json(definition.model_dump(mode="json")),
             "run.json": self._canonical_json(run.model_dump(mode="json")),
             "report.md": report.encode("utf-8"),
         }
+        if proof_of_spendability is not None:
+            files["proof-of-spendability.json"] = self._canonical_json(
+                proof_of_spendability.model_dump(mode="json")
+            )
+        lifecycle = self.lifecycle_recorder.timeline(run, records)
+        if lifecycle.events:
+            files["lifecycle.json"] = self._canonical_json(
+                lifecycle.model_dump(mode="json")
+            )
         for record in records:
             path = f"evidence/{record.evidence_id}.json"
             self._require_safe_bundle_path(path)
@@ -178,6 +229,270 @@ class ProofBundleService:
                 }
             )
         return files
+
+    def _proof_of_spendability(
+        self,
+        run: ScenarioRun,
+        records: list[EvidenceRecord],
+    ) -> TreasuryProofOfSpendability | None:
+        if run.scenario_id != "community-treasury-recovery":
+            return None
+
+        assertions = {result.assertion_id: result for result in run.assertion_results}
+        failures = {failure.code: failure for failure in run.expected_failures}
+
+        def check(
+            check_id: str,
+            label: str,
+            assertion_ids: tuple[str, ...],
+            expected_failure_code: str | None = None,
+        ) -> TreasurySpendabilityCheck:
+            results = [assertions.get(assertion_id) for assertion_id in assertion_ids]
+            assertions_passed = all(
+                result is not None and result.status == AssertionResultStatus.PASSED
+                for result in results
+            )
+            failure_observed = expected_failure_code is None or expected_failure_code in failures
+            passed = assertions_passed and failure_observed
+            if not passed:
+                status = SpendabilityCheckStatus.FAIL
+            elif expected_failure_code is not None:
+                status = SpendabilityCheckStatus.REJECTED_AS_EXPECTED
+            else:
+                status = SpendabilityCheckStatus.PASS
+            evidence_ids = sorted(
+                {
+                    evidence_id
+                    for result in results
+                    if result is not None
+                    for evidence_id in result.evidence_ids
+                }
+            )
+            if expected_failure_code is not None and expected_failure_code in failures:
+                evidence_ids = sorted(
+                    set(evidence_ids) | set(failures[expected_failure_code].evidence_ids)
+                )
+            return TreasurySpendabilityCheck(
+                check_id=check_id,
+                label=label,
+                status=status,
+                assertion_ids=list(assertion_ids),
+                expected_failure_code=expected_failure_code,
+                evidence_ids=evidence_ids,
+            )
+
+        checks = [
+            check(
+                "immediate.spend",
+                "Normal 2-of-3 operator spend",
+                ("immediate_threshold_met", "immediate_accepted", "immediate_confirmed"),
+            ),
+            check(
+                "immediate.insufficient-signatures",
+                "Insufficient operator signature attempt",
+                ("immediate_insufficient", "immediate_psbt_incomplete", "immediate_threshold_not_met"),
+                "insufficient-immediate-signatures",
+            ),
+            check(
+                "recovery.insufficient-signatures",
+                "Insufficient recovery signature attempt",
+                ("recovery_insufficient", "recovery_psbt_incomplete", "recovery_threshold_not_met"),
+                "insufficient-recovery-signatures",
+            ),
+            check(
+                "recovery.premature",
+                "Premature recovery attempt",
+                ("premature_recovery_rejected", "recovery_timelock_immature"),
+                "non-BIP68-final",
+            ),
+            check(
+                "recovery.incorrect-sequence",
+                "Incorrect recovery sequence",
+                ("wrong_sequence_incomplete",),
+                "incorrect-sequence-incomplete",
+            ),
+            check(
+                "recovery.mature-spend",
+                "Mature recovery path",
+                (
+                    "recovery_threshold_met",
+                    "recovery_timelock_mature",
+                    "recovery_accepted",
+                    "recovery_confirmed",
+                ),
+            ),
+            check(
+                "emergency.insufficient-signatures",
+                "Insufficient emergency signature attempt",
+                ("emergency_insufficient", "emergency_psbt_incomplete", "emergency_threshold_not_met"),
+                "insufficient-emergency-signatures",
+            ),
+            check(
+                "emergency.premature",
+                "Premature emergency attempt",
+                ("premature_emergency_rejected", "emergency_timelock_immature"),
+                "non-BIP68-final-emergency",
+            ),
+            check(
+                "emergency.mature-spend",
+                "Mature emergency path",
+                (
+                    "emergency_threshold_met",
+                    "emergency_timelock_mature",
+                    "emergency_accepted",
+                    "emergency_confirmed",
+                ),
+            ),
+        ]
+        cleanup_passed = run.cleanup_status == CleanupStatus.COMPLETED
+        checks.append(
+            TreasurySpendabilityCheck(
+                check_id="cleanup",
+                label="Session-owned cleanup",
+                status=(
+                    SpendabilityCheckStatus.PASS
+                    if cleanup_passed
+                    else SpendabilityCheckStatus.FAIL
+                ),
+            )
+        )
+
+        materialized = self._materialized_treasury_policy(records)
+        policy = None
+        if materialized is not None:
+            policy = TreasuryProofPolicy(
+                descriptor=materialized.normalized_descriptor,
+                address=materialized.address,
+                recovery_delay_blocks=materialized.policy.recovery_delay_blocks,
+                emergency_delay_blocks=materialized.policy.emergency_delay_blocks,
+                decision_tree=materialized.decision_tree,
+            )
+        core_compatible = self._is_core_28_1(run.bitcoin_core_version)
+        all_checks_passed = all(check.status != SpendabilityCheckStatus.FAIL for check in checks)
+        verified = (
+            run.final_result == ScenarioFinalResult.VERIFIED
+            and cleanup_passed
+            and all_checks_passed
+            and core_compatible
+            and policy is not None
+        )
+        if verified:
+            result: Literal["VERIFIED", "INCOMPLETE", "FAILED"] = "VERIFIED"
+        elif run.final_result in {ScenarioFinalResult.FAILED, ScenarioFinalResult.CLEANUP_FAILED}:
+            result = "FAILED"
+        else:
+            result = "INCOMPLETE"
+
+        return TreasuryProofOfSpendability(
+            scenario_version=run.scenario_version,
+            run_id=run.run_id,
+            lab_session_id=run.lab_session_id,
+            generated_at=run.updated_at,
+            result=result,
+            bitcoin_core_version=run.bitcoin_core_version,
+            bitcoin_core_compatibility="verified" if core_compatible else "unverified",
+            policy=policy,
+            checks=checks,
+            cleanup_status=run.cleanup_status.value,
+            evidence_ids=sorted(record.evidence_id for record in records),
+            limitations=[
+                "All participant wallets are controlled by one local Bitcoin Core process and one BitScope lab session.",
+                "The proof demonstrates regtest policy spendability, not independent custody, hardware-wallet isolation, or production safety.",
+                "The five-block and ten-block delays are bounded demonstration values, not production recommendations.",
+                "This report is reproducible evidence, not a signature, audit, attestation, or spend approval.",
+            ],
+        )
+
+    @staticmethod
+    def _materialized_treasury_policy(
+        records: list[EvidenceRecord],
+    ) -> MaterializedTreasuryPolicy | None:
+        record = next(
+            (record for record in records if record.evidence_id == "treasury.policy"),
+            None,
+        )
+        result = record.core_output.result if record is not None and record.core_output is not None else None
+        policy = result.get("policy") if isinstance(result, dict) else None
+        if not isinstance(policy, dict):
+            return None
+        try:
+            return MaterializedTreasuryPolicy.model_validate(policy)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _is_core_28_1(version: str | None) -> bool:
+        return isinstance(version, str) and (
+            version == "280100"
+            or re.fullmatch(r"/Satoshi:28\.1(?:\.0)?/", version) is not None
+        )
+
+    @staticmethod
+    def _render_proof_of_spendability(proof: TreasuryProofOfSpendability) -> str:
+        lines = [
+            "# Proof of Spendability: Community Treasury Recovery",
+            "",
+            f"Scenario: {proof.scenario}",
+            f"Result: {proof.result}",
+            "",
+            f"Runtime network: {proof.runtime_network}",
+            f"Bitcoin Core: {proof.bitcoin_core_version or 'unknown'}",
+            f"Bitcoin Core compatibility: {proof.bitcoin_core_compatibility}",
+            "",
+            "## Policy",
+            "",
+        ]
+        if proof.policy is None:
+            lines.append("The public treasury policy was not available in the captured evidence.")
+        else:
+            lines.extend(
+                [
+                    f"- Script type: `{proof.policy.script_type}`",
+                    f"- Treasury address: `{proof.policy.address}`",
+                    f"- Recovery delay: `{proof.policy.recovery_delay_blocks}` blocks",
+                    f"- Emergency delay: `{proof.policy.emergency_delay_blocks}` blocks",
+                    f"- Public descriptor: `{proof.policy.descriptor}`",
+                    "",
+                    "### Decision tree",
+                    "",
+                    proof.policy.decision_tree.root_label,
+                    *[
+                        (
+                            f"- {branch.path.value}: {branch.required_signatures}-of-{len(branch.participant_ids)}"
+                            + (
+                                f" after {branch.relative_delay_blocks} blocks"
+                                if branch.relative_delay_blocks is not None
+                                else " immediately"
+                            )
+                        )
+                        for branch in proof.policy.decision_tree.branches
+                    ],
+                ]
+            )
+        lines.extend(["", "## Spendability checks", ""])
+        lines.extend(
+            f"- {check.label}: **{check.status.value.replace('_', ' ')}**"
+            for check in proof.checks
+        )
+        lines.extend(
+            [
+                "",
+                "## Cleanup",
+                "",
+                f"Cleanup: **{proof.cleanup_status.upper().replace('_', ' ')}**",
+                "",
+                "## Educational signer model and limitations",
+                "",
+                f"Signer model: {proof.signer_model}.",
+                *[f"- {limitation}" for limitation in proof.limitations],
+                "",
+                "## Evidence inventory",
+                "",
+                *[f"- `{evidence_id}`" for evidence_id in proof.evidence_ids],
+                "",
+            ]
+        )
+        return "\n".join(lines)
 
     @classmethod
     def _render_report(

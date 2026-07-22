@@ -4,6 +4,7 @@ import json
 from datetime import UTC, datetime
 
 from app.errors import BitScopeError
+from app.models.attack import AttackContext, AttackFeature, MempoolAttackObservation
 from app.models.evidence import EvidenceRecord
 from app.models.lab import LabAction, LabSession
 from app.models.scenario import (
@@ -18,6 +19,7 @@ from app.models.scenario import (
 )
 from app.rpc.capabilities import RegtestMutationRpcClient, RpcTransport
 from app.services.lab_session_service import LabSessionService
+from app.services.attack_verification_service import AttackVerificationService
 from app.services.lab_session_store import LabSessionStore
 from app.services.network_safety import NetworkSafetyGuard
 from app.services.scenario_execution import ScenarioExecution, ScenarioExecutionError
@@ -27,12 +29,11 @@ from app.services.timelock_service import TimelockService
 class CltvTimelockScenarioService:
     """Prove a real P2WSH CLTV policy before and after absolute-height maturity."""
 
-    _LOCKTIME_FAILURE_MARKER = "Locktime requirement not satisfied"
-
     def __init__(self, rpc_client: RpcTransport, lab_store: LabSessionStore) -> None:
         self.rpc = RegtestMutationRpcClient(rpc_client)
         self.timelock_service = TimelockService(rpc_client)
         self.lab_store = lab_store
+        self.attacks = AttackVerificationService()
 
     def execute(self, run: ScenarioRun, definition: ScenarioDefinition) -> ScenarioExecution:
         captured_at = datetime.now(UTC)
@@ -86,6 +87,25 @@ class CltvTimelockScenarioService:
                 "getnewaddress",
             )
 
+            attack_context = AttackContext(
+                scenario_id=run.scenario_id,
+                available_features=[
+                    AttackFeature.RAW_TRANSACTION,
+                    AttackFeature.MUTABLE_INPUTS,
+                    AttackFeature.ABSOLUTE_TIMELOCK,
+                    AttackFeature.MEMPOOL_PREFLIGHT,
+                ],
+            )
+            premature_decision = self.attacks.require_applicable(
+                self.attacks.assess("cltv-timelock.premature-timelock", attack_context)
+            )
+            sequence_decision = self.attacks.require_applicable(
+                self.attacks.assess("cltv-timelock.sequence-modification", attack_context)
+            )
+            locktime_decision = self.attacks.require_applicable(
+                self.attacks.assess("cltv-timelock.locktime-modification", attack_context)
+            )
+
             current_step = "construct_premature_spend"
             valid_spend = self.timelock_service.create_cltv_spend(
                 funding,
@@ -110,9 +130,15 @@ class CltvTimelockScenarioService:
             premature_acceptance = self._single_acceptance(
                 self.rpc.call("testmempoolaccept", [[valid_hex]])
             )
-            self._expect_rejection(
-                premature_acceptance,
-                expected_reason="non-final",
+            premature_attack = self.attacks.require_expected(
+                self.attacks.verify(
+                    premature_decision,
+                    MempoolAttackObservation(
+                        allowed=premature_acceptance["allowed"],
+                        reject_reason=self._safe_reject_reason(premature_acceptance),
+                        raw_safe_details=premature_acceptance,
+                    ),
+                ),
                 mismatch_code="SCENARIO_CLTV_PREMATURE_REJECTION_MISMATCH",
                 safe_message="Bitcoin Core did not reject the premature CLTV spend as non-final.",
             )
@@ -136,12 +162,17 @@ class CltvTimelockScenarioService:
             final_sequence_acceptance = self._single_acceptance(
                 self.rpc.call("testmempoolaccept", [[final_sequence_hex]])
             )
-            self._expect_rejection(
-                final_sequence_acceptance,
-                expected_reason=self._LOCKTIME_FAILURE_MARKER,
+            sequence_attack = self.attacks.require_expected(
+                self.attacks.verify(
+                    sequence_decision,
+                    MempoolAttackObservation(
+                        allowed=final_sequence_acceptance["allowed"],
+                        reject_reason=self._safe_reject_reason(final_sequence_acceptance),
+                        raw_safe_details=final_sequence_acceptance,
+                    ),
+                ),
                 mismatch_code="SCENARIO_CLTV_FINAL_SEQUENCE_REJECTION_MISMATCH",
                 safe_message="Bitcoin Core did not reject the final-sequence CLTV variant for its locktime requirement.",
-                contains=True,
             )
 
             current_step = "advance_to_maturity"
@@ -190,12 +221,17 @@ class CltvTimelockScenarioService:
             low_locktime_acceptance = self._single_acceptance(
                 self.rpc.call("testmempoolaccept", [[low_locktime_hex]])
             )
-            self._expect_rejection(
-                low_locktime_acceptance,
-                expected_reason=self._LOCKTIME_FAILURE_MARKER,
+            locktime_attack = self.attacks.require_expected(
+                self.attacks.verify(
+                    locktime_decision,
+                    MempoolAttackObservation(
+                        allowed=low_locktime_acceptance["allowed"],
+                        reject_reason=self._safe_reject_reason(low_locktime_acceptance),
+                        raw_safe_details=low_locktime_acceptance,
+                    ),
+                ),
                 mismatch_code="SCENARIO_CLTV_LOW_LOCKTIME_REJECTION_MISMATCH",
                 safe_message="Bitcoin Core did not reject the low-nLockTime CLTV variant.",
-                contains=True,
             )
 
             current_step = "accept_mature_spend"
@@ -308,6 +344,7 @@ class CltvTimelockScenarioService:
             evidence_records=evidence_records,
             step_results=self._step_results(captured_at),
             assertion_results=self._assertion_results(),
+            attack_results=[premature_attack, sequence_attack, locktime_attack],
         )
 
     def cleanup(self, run: ScenarioRun) -> list[str]:
@@ -819,32 +856,6 @@ class CltvTimelockScenarioService:
             )
             for assertion_id in explanations
         ]
-
-    @staticmethod
-    def _expect_rejection(
-        acceptance: dict[str, object],
-        *,
-        expected_reason: str,
-        mismatch_code: str,
-        safe_message: str,
-        contains: bool = False,
-    ) -> None:
-        reason = CltvTimelockScenarioService._safe_reject_reason(acceptance)
-        matches = (
-            acceptance.get("allowed") is False
-            and reason is not None
-            and (expected_reason in reason if contains else reason == expected_reason)
-        )
-        if not matches:
-            raise BitScopeError(
-                mismatch_code,
-                safe_message,
-                409,
-                {
-                    "observed_allowed": acceptance.get("allowed"),
-                    "observed_reject_reason": reason,
-                },
-            )
 
     @staticmethod
     def _single_acceptance(value: object) -> dict[str, object]:

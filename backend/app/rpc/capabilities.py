@@ -74,6 +74,7 @@ WALLET_READ_METHODS = READ_ONLY_METHODS | {
 REGTEST_MUTATION_METHODS = WALLET_READ_METHODS | {
     "addmultisigaddress",
     "bumpfee",
+    "createpsbt",
     "createmultisig",
     "createrawtransaction",
     "createwallet",
@@ -82,6 +83,7 @@ REGTEST_MUTATION_METHODS = WALLET_READ_METHODS | {
     "generatetoaddress",
     "getnewaddress",
     "importaddress",
+    "importdescriptors",
     "loadwallet",
     "sendrawtransaction",
     "sendtoaddress",

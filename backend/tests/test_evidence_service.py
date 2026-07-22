@@ -526,6 +526,10 @@ def test_evidence_report_and_bundle_routes_stream_owned_redacted_artifacts(tmp_p
     evidence = client.get(f"/api/scenario-runs/{run.run_id}/evidence", params=query)
     assert evidence.status_code == 200
     assert evidence.json()["evidence"][0]["evidence_id"] == "rpc.transaction"
+    lifecycle = client.get(f"/api/scenario-runs/{run.run_id}/lifecycle", params=query)
+    assert lifecycle.status_code == 200
+    assert lifecycle.json()["run_id"] == str(run.run_id)
+    assert lifecycle.json()["events"] == []
     report = client.get(f"/api/scenario-runs/{run.run_id}/report", params=query)
     assert report.status_code == 200
     assert report.headers["content-type"].startswith("text/markdown")
@@ -541,3 +545,8 @@ def test_evidence_report_and_bundle_routes_stream_owned_redacted_artifacts(tmp_p
         params={"lab_session_id": "session_other"},
     )
     assert hidden.status_code == 404
+    hidden_lifecycle = client.get(
+        f"/api/scenario-runs/{run.run_id}/lifecycle",
+        params={"lab_session_id": "session_other"},
+    )
+    assert hidden_lifecycle.status_code == 404

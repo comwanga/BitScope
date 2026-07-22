@@ -99,7 +99,7 @@ jobs:
           docker logs bitscope-core-ci
           exit 1
 
-      - name: Run deterministic live-node workflows
+      - name: Run deterministic live-node workflows and treasury proof
         run: python -m pytest tests/live_node -v
 
       - name: Show Bitcoin Core logs on failure

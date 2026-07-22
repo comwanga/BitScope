@@ -46,3 +46,29 @@ Before maturity, Core 28.1 must reject the correctly signed spend with `allowed=
 This proves an absolute block-height CLTV branch on regtest. It does not prove median-time-past CLTV, relative CSV, hardware custody, durable recovery-key backup, or production policy safety.
 
 Deterministic bundles contain node context, scenario evidence, Core output, assertions, safe reproduction commands, manifest hashes, and a run report. They are regtest evidence—not signatures, audits, or production-spend approvals.
+
+## Community Treasury Recovery executor
+
+`community-treasury-recovery` version `1.0.0` is a typed 53-step flagship definition built around the Core 28.1-proved P2WSH Miniscript policy. It creates nine session-owned descriptor signer wallets across operator, recovery, and emergency groups plus one private-keys-disabled coordinator. The coordinator imports only the public descriptor; no private key export or application-held signer is used.
+
+The immediate branch proves one-signature incompleteness followed by a finalized, preflighted, confirmed 2-of-3 operator spend. The five-block recovery branch proves one-signature incompleteness, exact premature `non-BIP68-final` rejection, and Core finalizer refusal for a fully signed sequence-four PSBT before confirming the unchanged mature transaction. The ten-block emergency branch independently proves its one-signature, premature, mature, and confirmed states.
+
+All six negative outcomes are recorded as expected failures only after exact classification. Any different premature reason, signature count, PSBT completion state, sequence, descriptor property, or transaction state fails the run and still invokes session-owned cleanup.
+
+The specialized export adds `proof-of-spendability.json` and a treasury-specific `report.md` to the deterministic bundle. It reports the public descriptor and decision tree, Core compatibility, ten typed spendability and cleanup checks, exact expected-rejection classifications, evidence references, and the educational signer-model limitations. `VERIFIED` requires a verified scenario result, complete cleanup, policy evidence, every check passing or being rejected as expected, and the exact pinned Core 28.1 runtime.
+
+`backend/tests/live_node/test_community_treasury_scenario_live.py` runs the registered integrated executor against a disposable Core 28.1 regtest node, verifies all 53 steps and 25 assertions, confirms the six classified negative outcomes, checks session-owned cleanup, and exports the proof bundle twice to prove byte-for-byte determinism. The existing blocking `tests/live_node` CI job includes this test.
+
+## Typed attack verification
+
+All mandatory scenarios now declare reviewed attack applicability before attempting their negative paths and export a shared `evidence/attacks.summary.json`. Transaction lifecycle classifies output modification; RBF classifies replacement-policy failure; multisig classifies signature insufficiency and PSBT incompleteness; CLTV classifies premature execution plus sequence and locktime modification; Community Treasury Recovery reuses signature insufficiency, PSBT incompleteness, premature execution, and sequence modification across its branches.
+
+Classification is driven first by structured Core fields such as `allowed`, `complete`, signature count, RPC method, and numeric RPC code. Bounded text markers are supplemental only where Core 28.1 provides no narrower machine field. Unsupported attack types return `not_applicable` with a reason and are not executed. Expected, unexpected, and skipped results are distinct, while safe raw details are recursively redacted and retained. See `docs/attack-verification.md` for the authoring and evidence contract.
+
+## Transaction lifecycle evidence
+
+All five mandatory scenarios export typed, ordered lifecycle evidence and a deterministic `lifecycle.json`. Events are emitted only from explicitly mapped persisted evidence; cleanup is appended only after successful cleanup. RBF records its replacement with a `replaces` relationship, CLTV records absolute maturity, and the treasury flagship separates immediate, recovery, and emergency tracks with independent maturity events. The shared schema and UI also render an explicitly recorded CPFP `child_of` relationship, while the optional CPFP scenario itself remains deferred. See [Transaction Lifecycle Recorder](transaction-lifecycle-recorder.md) for the evidence and frontend contract.
+
+## Challenge completion reuse
+
+Challenge Mode does not add a second transaction validator. Each challenge identifies one reviewed scenario plus a bounded subset of its typed assertions and canonical evidence. Completion requires the owner-scoped run to be verified, cleanup to be complete, Bitcoin Core identity to be recorded, every required assertion to have passed, and every required artifact to load with its stored SHA-256 identity. The final explanation remains locked until those checks pass, and the exported completion document cites the exact artifact hashes. See [Curriculum Mapping and Challenge Mode](curriculum-and-challenge-mode.md).

@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -223,6 +224,15 @@ def test_multisig_psbt_scenario_proves_threshold_exports_and_cleans_up(tmp_path:
     assert "evidence/psbt.partial.json" in first.files
     assert "evidence/psbt.complete.json" in first.files
     assert "evidence/multisig.confirmed.json" in first.files
+    lifecycle = json.loads(first.files["lifecycle.json"])
+    assert [event["event_type"] for event in lifecycle["events"]].count("psbt_partially_signed") == 1
+    assert [event["event_type"] for event in lifecycle["events"]].count("psbt_completed") == 1
+    assert lifecycle["events"][-1]["event_type"] == "scenario_cleaned_up"
+    attacks = json.loads(first.files["evidence/attacks.summary.json"])["core_output"]["result"]
+    assert [item["attack_type"] for item in attacks] == [
+        "signature_insufficiency",
+        "psbt_incompleteness",
+    ]
     assert b"insufficient-signatures" in first.files["run.json"]
     assert all(b"multisig-secret" not in content for content in first.files.values())
 
@@ -239,6 +249,8 @@ def test_multisig_psbt_scenario_fails_closed_if_first_signer_claims_completion(t
     assert failed.cleanup_status == CleanupStatus.COMPLETED
     assert failed.failed_steps == ["sign_with_one"]
     assert failed.unexpected_failures[0].code == "SCENARIO_MULTISIG_PARTIAL_STATE_MISMATCH"
+    assert failed.unexpected_failures[0].attack_id == "multisig-psbt.signature-insufficiency"
+    assert failed.unexpected_failures[0].raw_safe_details["complete"] is True
     session = lab_store.get(SESSION_ID)
     assert session is not None and session.status == "cleaned"
 

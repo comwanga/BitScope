@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from app.errors import BitScopeError
+from app.models.attack import AttackVerificationResult
 from app.models.evidence import CapturedEvidence, EvidenceRecord
 from app.models.scenario import (
     CleanupStatus,
@@ -18,8 +19,11 @@ from app.models.scenario import (
 from app.rpc.capabilities import ReadOnlyRpcClient, RpcTransport
 from app.services.cltv_timelock_scenario import CLTV_TIMELOCK_SCENARIO
 from app.services.cltv_timelock_scenario_service import CltvTimelockScenarioService
+from app.services.community_treasury_scenario import COMMUNITY_TREASURY_SCENARIO
+from app.services.community_treasury_scenario_service import CommunityTreasuryScenarioService
 from app.services.evidence_service import EvidenceService
 from app.services.lab_session_store import LabSessionStore
+from app.services.lifecycle_recorder import LifecycleRecorder
 from app.services.multisig_psbt_scenario import MULTISIG_PSBT_SCENARIO
 from app.services.multisig_psbt_scenario_service import MultisigPsbtScenarioService
 from app.services.network_safety import NetworkSafetyGuard
@@ -50,6 +54,7 @@ class ScenarioService:
         self.catalog = catalog
         self.evidence_service = evidence_service
         self.artifact_store = artifact_store
+        self.lifecycle_recorder = LifecycleRecorder(evidence_service.redactor)
         owned_lab_store = lab_store or LabSessionStore(store.database_path)
         self.lifecycle_service = TransactionLifecycleService(
             rpc_client,
@@ -64,6 +69,10 @@ class ScenarioService:
             owned_lab_store,
         )
         self.cltv_timelock_service = CltvTimelockScenarioService(
+            rpc_client,
+            owned_lab_store,
+        )
+        self.community_treasury_service = CommunityTreasuryScenarioService(
             rpc_client,
             owned_lab_store,
         )
@@ -110,6 +119,12 @@ class ScenarioService:
                     run,
                     definition,
                     self.cltv_timelock_service,
+                )
+            if definition == COMMUNITY_TREASURY_SCENARIO:
+                return self._execute_reviewed_scenario(
+                    run,
+                    definition,
+                    self.community_treasury_service,
                 )
             raise self._execution_not_available(run)
         if run.current_state != ScenarioRunState.CREATED:
@@ -206,9 +221,22 @@ class ScenarioService:
             )
 
         try:
+            evidence_records = list(execution.evidence_records)
+            if execution.attack_results:
+                evidence_records.append(
+                    self._attack_evidence(running, execution.attack_results, timestamp)
+                )
+            lifecycle_events = self.lifecycle_recorder.record(
+                running,
+                execution.evidence_records,
+            )
+            if lifecycle_events:
+                evidence_records.append(
+                    self.lifecycle_recorder.evidence(running, lifecycle_events, timestamp)
+                )
             captured = [
                 self.evidence_service.capture(running, record)
-                for record in execution.evidence_records
+                for record in evidence_records
             ]
             verifying = running.checkpoint(
                 state=ScenarioRunState.VERIFYING,
@@ -265,6 +293,12 @@ class ScenarioService:
             return self._finish_cleanup_failure(cleaning, error)
 
         completed_at = datetime.now(UTC)
+        cleanup_evidence = self.lifecycle_recorder.cleanup_evidence(
+            cleaning,
+            completed_at,
+            len(lifecycle_events) + 1,
+        )
+        captured_cleanup = self.evidence_service.capture(cleaning, cleanup_evidence)
         cleanup_result = ScenarioStepResult(
             step_id="cleanup",
             status=ScenarioStepResultStatus.COMPLETED,
@@ -274,10 +308,11 @@ class ScenarioService:
         verified = cleaning.checkpoint(
             state=ScenarioRunState.VERIFIED,
             step_results=[cleanup_result],
+            evidence_references=[captured_cleanup.reference],
             cleanup_status=CleanupStatus.COMPLETED,
             now=completed_at,
         )
-        self.store.save(verified, expected_revision=cleaning.revision)
+        self._persist_checkpoint_with_evidence(cleaning, verified, [captured_cleanup])
         return verified
 
     def _fail_scenario_execution(
@@ -298,6 +333,13 @@ class ScenarioService:
         safe_message = self.evidence_service.redactor.redact(
             error.details.get("rpc_message") if isinstance(error.details.get("rpc_message"), str) else error.message
         )
+        attack_result = error.details.get("attack_result")
+        attack_id = attack_result.get("attack_id") if isinstance(attack_result, dict) else None
+        raw_safe_details = (
+            self.evidence_service.redactor.redact(attack_result.get("raw_safe_details"))
+            if isinstance(attack_result, dict)
+            else None
+        )
         failure = ScenarioFailure(
             failure_id=f"failure.{execution_error.step_id}",
             step_id=execution_error.step_id,
@@ -306,6 +348,8 @@ class ScenarioService:
             code=error.code,
             safe_message=str(safe_message)[:2_000],
             rpc_code=error.details.get("rpc_code") if isinstance(error.details.get("rpc_code"), int) else None,
+            attack_id=attack_id if isinstance(attack_id, str) else None,
+            raw_safe_details=raw_safe_details,
             evidence_ids=[captured.reference.evidence_id],
         )
         failed_step = ScenarioStepResult(
@@ -335,6 +379,12 @@ class ScenarioService:
             return self._finish_cleanup_failure(cleaning, cleanup_error)
 
         completed_at = datetime.now(UTC)
+        cleanup_evidence = self.lifecycle_recorder.cleanup_evidence(
+            cleaning,
+            completed_at,
+            1,
+        )
+        captured_cleanup = self.evidence_service.capture(cleaning, cleanup_evidence)
         cleanup_result = ScenarioStepResult(
             step_id="cleanup",
             status=ScenarioStepResultStatus.COMPLETED,
@@ -344,10 +394,11 @@ class ScenarioService:
         failed = cleaning.checkpoint(
             state=ScenarioRunState.FAILED,
             step_results=[cleanup_result],
+            evidence_references=[captured_cleanup.reference],
             cleanup_status=CleanupStatus.COMPLETED,
             now=completed_at,
         )
-        self.store.save(failed, expected_revision=cleaning.revision)
+        self._persist_checkpoint_with_evidence(cleaning, failed, [captured_cleanup])
         return failed
 
     def _finish_cleanup_failure(self, cleaning: ScenarioRun, error: BitScopeError) -> ScenarioRun:
@@ -400,6 +451,49 @@ class ScenarioService:
                 except (BitScopeError, OSError):
                     pass
             raise
+
+    @staticmethod
+    def _attack_evidence(
+        run: ScenarioRun,
+        results: list[AttackVerificationResult],
+        captured_at: datetime,
+    ) -> EvidenceRecord:
+        return EvidenceRecord(
+            evidence_id="attacks.summary",
+            kind="assertion",
+            label="Typed attack verification summary",
+            scenario_id=run.scenario_id,
+            scenario_version=run.scenario_version,
+            run_id=run.run_id,
+            lab_session_id=run.lab_session_id,
+            step_id="verify_results",
+            captured_at=captured_at,
+            core_output={
+                "safe_parameters": [],
+                "result": [result.model_dump(mode="json") for result in results],
+            },
+            bitscope_interpretation={
+                "summary": "BitScope classified reviewed negative paths only after explicit applicability decisions.",
+                "facts": [
+                    {
+                        "name": "attacks.result_count",
+                        "value": len(results),
+                        "run_specific": True,
+                    },
+                    {
+                        "name": "attacks.expected_failure_count",
+                        "value": sum(
+                            result.status.value == "expected_failure" for result in results
+                        ),
+                        "run_specific": True,
+                    },
+                ],
+                "limitations": [
+                    "Only reviewed typed attacks are executable; unsupported attacks are skipped with an explicit reason.",
+                    "Raw details are bounded and recursively redacted before persistence.",
+                ],
+            },
+        )
 
     @staticmethod
     def _failure_category(error: BitScopeError) -> FailureCategory:

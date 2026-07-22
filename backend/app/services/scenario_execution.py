@@ -1,8 +1,9 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol
 
 from app.errors import BitScopeError
+from app.models.attack import AttackVerificationResult
 from app.models.evidence import EvidenceRecord
 from app.models.scenario import AssertionResult, ScenarioDefinition, ScenarioRun, ScenarioStepResult
 
@@ -12,6 +13,7 @@ class ScenarioExecution:
     evidence_records: list[EvidenceRecord]
     step_results: list[ScenarioStepResult]
     assertion_results: list[AssertionResult]
+    attack_results: list[AttackVerificationResult] = field(default_factory=list)
 
 
 class ScenarioExecutionError(Exception):

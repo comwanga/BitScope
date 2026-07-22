@@ -4,6 +4,11 @@ import json
 from datetime import UTC, datetime
 
 from app.errors import BitScopeError
+from app.models.attack import (
+    AttackContext,
+    AttackFeature,
+    PsbtAttackObservation,
+)
 from app.models.evidence import EvidenceRecord
 from app.models.lab import LabAction, LabSession
 from app.models.scenario import (
@@ -18,6 +23,7 @@ from app.models.scenario import (
 )
 from app.rpc.capabilities import RegtestMutationRpcClient, RpcTransport
 from app.services.lab_session_service import LabSessionService
+from app.services.attack_verification_service import AttackVerificationService
 from app.services.lab_session_store import LabSessionStore
 from app.services.multisig_service import MultisigService
 from app.services.network_safety import NetworkSafetyGuard
@@ -33,6 +39,7 @@ class MultisigPsbtScenarioService:
         self.multisig_service = MultisigService(rpc_client)
         self.psbt_service = PsbtService(rpc_client)
         self.lab_store = lab_store
+        self.attacks = AttackVerificationService()
 
     def execute(self, run: ScenarioRun, definition: ScenarioDefinition) -> ScenarioExecution:
         captured_at = datetime.now(UTC)
@@ -109,6 +116,23 @@ class MultisigPsbtScenarioService:
                 "walletcreatefundedpsbt",
             )
 
+            attack_context = AttackContext(
+                scenario_id=run.scenario_id,
+                available_features=[AttackFeature.PSBT, AttackFeature.THRESHOLD_POLICY],
+            )
+            signature_decision = self.attacks.require_applicable(
+                self.attacks.assess(
+                    "multisig-psbt.signature-insufficiency",
+                    attack_context,
+                )
+            )
+            incomplete_decision = self.attacks.require_applicable(
+                self.attacks.assess(
+                    "multisig-psbt.psbt-incompleteness",
+                    attack_context,
+                )
+            )
+
             current_step = "sign_with_one"
             partial = self.psbt_service.process(
                 signer_wallets[0],
@@ -118,25 +142,54 @@ class MultisigPsbtScenarioService:
             )
             partial_psbt = self._require_string(partial.get("psbt"), "walletprocesspsbt")
             partial_signature_count = self._signature_count(partial)
-            if partial.get("complete") is not False or partial_signature_count != 1:
-                raise BitScopeError(
-                    "SCENARIO_MULTISIG_PARTIAL_STATE_MISMATCH",
-                    "The first signer did not produce the expected one-signature incomplete PSBT.",
-                    409,
-                    {
-                        "observed_complete": partial.get("complete"),
-                        "observed_signature_count": partial_signature_count,
-                    },
-                )
+            signature_attack = self.attacks.require_expected(
+                self.attacks.verify(
+                    signature_decision,
+                    PsbtAttackObservation(
+                        complete=(
+                            partial.get("complete")
+                            if isinstance(partial.get("complete"), bool)
+                            else None
+                        ),
+                        transaction_hex_present=partial.get("hex") is not None,
+                        signature_count=partial_signature_count,
+                        raw_safe_details={
+                            "complete": partial.get("complete"),
+                            "transaction_hex_present": partial.get("hex") is not None,
+                            "signature_count": partial_signature_count,
+                            "required_signature_count": 2,
+                        },
+                    ),
+                ),
+                mismatch_code="SCENARIO_MULTISIG_PARTIAL_STATE_MISMATCH",
+                safe_message=(
+                    "The first signer did not produce the expected one-signature incomplete PSBT."
+                ),
+            )
 
             current_step = "verify_incomplete"
             incomplete_finalization = self.psbt_service.finalize(partial_psbt, False)
-            if incomplete_finalization.get("complete") is not False or incomplete_finalization.get("hex") is not None:
-                raise BitScopeError(
-                    "SCENARIO_MULTISIG_INCOMPLETE_FINALIZATION_MISMATCH",
-                    "Bitcoin Core did not preserve the expected incomplete PSBT state.",
-                    409,
-                )
+            incomplete_attack = self.attacks.require_expected(
+                self.attacks.verify(
+                    incomplete_decision,
+                    PsbtAttackObservation(
+                        complete=(
+                            incomplete_finalization.get("complete")
+                            if isinstance(incomplete_finalization.get("complete"), bool)
+                            else None
+                        ),
+                        transaction_hex_present=incomplete_finalization.get("hex") is not None,
+                        signature_count=partial_signature_count,
+                        raw_safe_details={
+                            "complete": incomplete_finalization.get("complete"),
+                            "transaction_hex_present": incomplete_finalization.get("hex") is not None,
+                            "signature_count": partial_signature_count,
+                        },
+                    ),
+                ),
+                mismatch_code="SCENARIO_MULTISIG_INCOMPLETE_FINALIZATION_MISMATCH",
+                safe_message="Bitcoin Core did not preserve the expected incomplete PSBT state.",
+            )
 
             current_step = "sign_with_second"
             threshold = self.psbt_service.process(
@@ -256,6 +309,7 @@ class MultisigPsbtScenarioService:
             evidence_records=evidence_records,
             step_results=self._step_results(captured_at),
             assertion_results=self._assertion_results(),
+            attack_results=[signature_attack, incomplete_attack],
         )
 
     def cleanup(self, run: ScenarioRun) -> list[str]:

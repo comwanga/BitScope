@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -269,6 +270,17 @@ def test_cltv_scenario_rejects_variants_matures_confirms_and_cleans_up(tmp_path:
     ):
         assert f"evidence/{evidence_id}.json" in first.files
     assert b"cltv-final-sequence" in first.files["run.json"]
+    lifecycle = json.loads(first.files["lifecycle.json"])
+    maturity = next(event for event in lifecycle["events"] if event["event_type"] == "timelock_matured")
+    assert maturity["track_id"] == "cltv.spend"
+    assert maturity["block_height"] == rpc.target
+    assert lifecycle["events"][-1]["event_type"] == "scenario_cleaned_up"
+    attacks = json.loads(first.files["evidence/attacks.summary.json"])["core_output"]["result"]
+    assert [item["attack_type"] for item in attacks] == [
+        "premature_timelock_execution",
+        "sequence_modification",
+        "locktime_modification",
+    ]
     assert all(b"cltv-secret" not in content for content in first.files.values())
 
 
@@ -284,6 +296,8 @@ def test_cltv_scenario_fails_closed_on_different_premature_rejection(tmp_path: P
     assert failed.cleanup_status == CleanupStatus.COMPLETED
     assert failed.failed_steps == ["reject_premature_spend"]
     assert failed.unexpected_failures[0].code == "SCENARIO_CLTV_PREMATURE_REJECTION_MISMATCH"
+    assert failed.unexpected_failures[0].attack_id == "cltv-timelock.premature-timelock"
+    assert failed.unexpected_failures[0].raw_safe_details["reject-reason"] == "missing-inputs"
     assert timelock.clear_count == 1
     session = lab_store.get(SESSION_ID)
     assert session is not None and session.status == "cleaned"

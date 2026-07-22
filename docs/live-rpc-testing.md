@@ -46,6 +46,12 @@ The verified CLTV test funds a P2WSH `<height> OP_CHECKLOCKTIMEVERIFY OP_DROP <p
 
 The Community Treasury policy proof imports a public three-branch P2WSH Miniscript descriptor into a private-key-disabled coordinator wallet. Separate descriptor wallets contribute 2-of-3 operator, recovery, and emergency signatures through PSBTs. Core 28.1 must keep every one-signature PSBT incomplete, reject delayed transactions as `non-BIP68-final`, refuse finalization when sequence is below the script's `older()` value, and accept the unchanged recovery and emergency transactions after their relative block delays.
 
+The integrated `test_community_treasury_scenario_live.py` live test executes the registered 53-step scenario and exports the specialized Proof of Spendability twice. It requires 25 passed assertions, six precisely classified expected failures, complete session-owned cleanup, an exact Core 28.1 runtime, and byte-identical bundles.
+
+The same live test is the pinned attack-framework gate. Its proof bundle must contain nine `expected_failure` entries in `evidence/attacks.summary.json`, covering signature insufficiency, PSBT incompleteness, premature timelock execution, and sequence modification with bounded safe Core observations.
+
+It is also the pinned lifecycle-recorder gate. The deterministic bundle must contain 33 ordered lifecycle events: the policy setup, immediate/recovery/emergency transaction tracks, two independently recorded timelock maturities, and the final successful cleanup event. These events come from persisted backend evidence and are not reconstructed by the test or frontend.
+
 ## Common Failures
 
 ### Insufficient or Immature Funds

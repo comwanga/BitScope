@@ -934,11 +934,150 @@ export type LearningRpcMethodsResponse = {
   explanation: string;
 };
 
+export type CurriculumEntry = {
+  chapter: number;
+  title: string;
+  source_url: string;
+  learning_objective: string;
+  relevant_pages: string[];
+  relevant_scenarios: string[];
+  rpc_methods: string[];
+  prerequisites: string[];
+  guided_exercise: string;
+  independent_challenge: string;
+  verification_criteria: string[];
+  implementation_note: string | null;
+};
+
+export type CurriculumResponse = {
+  schema_version: 1;
+  course_title: string;
+  course_url: string;
+  chapters: CurriculumEntry[];
+  explanation: string;
+};
+
+export type ChallengeDefinition = {
+  challenge_id: string;
+  version: string;
+  title: string;
+  difficulty: "beginner" | "intermediate" | "advanced";
+  objective: string;
+  allowed_actions: string[];
+  relevant_pages: string[];
+  scenario_id: string;
+  hint_count: number;
+  verification_summary: string;
+  solution_locked: true;
+};
+
+export type ChallengeCatalogResponse = {
+  schema_version: 1;
+  challenges: ChallengeDefinition[];
+  explanation: string;
+};
+
+export type ChallengeHint = {
+  challenge_id: string;
+  level: number;
+  hint: string;
+  remaining_hints: number;
+  reveals_solution: false;
+};
+
+export type ChallengeVerificationCheck = {
+  check_id: string;
+  passed: boolean;
+  explanation: string;
+  evidence_ids: string[];
+};
+
+export type ChallengeVerificationResult = {
+  schema_version: 1;
+  challenge_id: string;
+  challenge_version: string;
+  run_id: string;
+  lab_session_id: string;
+  scenario_id: string;
+  scenario_version: string;
+  bitcoin_core_version: string | null;
+  verified_at: string;
+  completed: boolean;
+  validation_source: "persisted_bitcoin_core_scenario_evidence";
+  checks: ChallengeVerificationCheck[];
+  evidence: Array<{ evidence_id: string; kind: string; content_sha256: string }>;
+  final_explanation: string;
+  solution_unlocked: boolean;
+};
+
 export type ApiError = {
   error: true;
   code: string;
   message: string;
   details: Record<string, unknown>;
+};
+
+export type LifecycleEventType =
+  | "wallet_prepared"
+  | "utxo_selected"
+  | "raw_transaction_created"
+  | "transaction_funded"
+  | "psbt_created"
+  | "psbt_partially_signed"
+  | "psbt_completed"
+  | "transaction_finalized"
+  | "mempool_preflight_completed"
+  | "transaction_broadcast"
+  | "transaction_entered_mempool"
+  | "transaction_replaced"
+  | "child_transaction_created"
+  | "transaction_confirmed"
+  | "timelock_matured"
+  | "scenario_cleaned_up";
+
+export type LifecycleRelationship = {
+  relationship_type: "replaces" | "replaced_by" | "child_of" | "parent_of" | "conflicts_with";
+  related_txid: string;
+  explanation: string;
+};
+
+export type TransactionLifecycleEvent = {
+  schema_version: 1;
+  event_id: string;
+  ordinal: number;
+  event_type: LifecycleEventType;
+  timestamp: string;
+  step_id: string;
+  track_id: string;
+  transaction_state: string;
+  transaction_id: string | null;
+  transaction_hex_ref: string | null;
+  psbt_ref: string | null;
+  fee_btc: string | number | null;
+  fee_rate_sat_vb: string | number | null;
+  locktime: number | null;
+  sequence_values: number[];
+  relationship: LifecycleRelationship | null;
+  block_height: number | null;
+  explanation: string;
+  rpc_method: string;
+  cli_command: {
+    executable: "bitcoin-cli";
+    arguments: string[];
+    description: string;
+  };
+  evidence_id: string;
+  raw_safe_core_result: unknown;
+};
+
+export type TransactionLifecycleTimeline = {
+  schema_version: 1;
+  run_id: string;
+  scenario_id: string;
+  scenario_version: string;
+  lab_session_id: string;
+  generated_at: string;
+  events: TransactionLifecycleEvent[];
 };
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
@@ -1046,6 +1185,21 @@ export async function fetchKeyEducation(): Promise<KeyEducationResponse> {
   }
 
   return response.json() as Promise<KeyEducationResponse>;
+}
+
+export async function fetchScenarioLifecycle(
+  runId: string,
+  labSessionId: string
+): Promise<TransactionLifecycleTimeline> {
+  const query = new URLSearchParams({ lab_session_id: labSessionId });
+  const response = await fetch(
+    `${API_BASE_URL}/scenario-runs/${encodeURIComponent(runId)}/lifecycle?${query.toString()}`,
+    { cache: "no-store" }
+  );
+  if (!response.ok) {
+    throw new Error(await extractApiError(response, "The scenario lifecycle could not be loaded."));
+  }
+  return response.json() as Promise<TransactionLifecycleTimeline>;
 }
 
 export async function runDemoMode(
@@ -1595,6 +1749,45 @@ export async function fetchLearningRpcMethods(): Promise<LearningRpcMethodsRespo
   }
 
   return response.json() as Promise<LearningRpcMethodsResponse>;
+}
+
+export async function fetchCurriculum(): Promise<CurriculumResponse> {
+  const response = await fetch(`${API_BASE_URL}/learn/curriculum`, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(await extractApiError(response, "The curriculum mapping could not be loaded."));
+  }
+  return response.json() as Promise<CurriculumResponse>;
+}
+
+export async function fetchChallenges(): Promise<ChallengeCatalogResponse> {
+  const response = await fetch(`${API_BASE_URL}/learn/challenges`, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(await extractApiError(response, "Challenge Mode could not be loaded."));
+  }
+  return response.json() as Promise<ChallengeCatalogResponse>;
+}
+
+export async function fetchChallengeHint(challengeId: string, level: number): Promise<ChallengeHint> {
+  const response = await fetch(
+    `${API_BASE_URL}/learn/challenges/${encodeURIComponent(challengeId)}/hints/${level}`,
+    { cache: "no-store" }
+  );
+  if (!response.ok) {
+    throw new Error(await extractApiError(response, "The next challenge hint could not be loaded."));
+  }
+  return response.json() as Promise<ChallengeHint>;
+}
+
+export async function verifyChallenge(
+  challengeId: string,
+  runId: string,
+  labSessionId: string
+): Promise<ChallengeVerificationResult> {
+  return postJson<ChallengeVerificationResult>(
+    `/learn/challenges/${encodeURIComponent(challengeId)}/verify`,
+    { run_id: runId, lab_session_id: labSessionId },
+    "The challenge result could not be verified."
+  );
 }
 
 async function postJson<T>(path: string, body: Record<string, unknown>, fallback: string): Promise<T> {

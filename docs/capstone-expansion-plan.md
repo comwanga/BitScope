@@ -397,28 +397,29 @@ Do not assume the flagship three-branch policy is supported. Implement the prove
 
 - [x] Research the exact three-path P2WSH Miniscript policy against Core 28.1 and current dependencies.
 - [x] Prove immediate, premature, mature recovery, incorrect-sequence, and threshold-emergency branches in isolation.
-- [ ] Implement only supported branches with independent signer-context limitations documented.
-- [ ] Export a complete Proof of Spendability bundle and add pinned live CI coverage.
+- [x] Add typed public policy/participant models and a narrowly scoped materialization/import service.
+- [x] Implement the typed three-path executor with independent signer-context limitations documented.
+- [x] Export a complete Proof of Spendability bundle and add pinned live CI coverage.
 
 ### Phase 5 - Attack and verification framework
 
-- [ ] Generalize proved attacks into typed, applicability-aware definitions.
-- [ ] Add structured failure classification and preserve safe raw details.
-- [ ] Reuse at least four attack types across scenarios.
-- [ ] Migrate flagship checks away from one-off error logic.
+- [x] Generalize proved attacks into typed, applicability-aware definitions.
+- [x] Add structured failure classification and preserve safe raw details.
+- [x] Reuse at least four attack types across scenarios.
+- [x] Migrate flagship checks away from one-off error logic.
 
 ### Phase 6 - Lifecycle recorder
 
-- [ ] Normalize backend lifecycle events from scenario evidence.
-- [ ] Add transaction timeline UI with RBF, CPFP, and timelock relationships.
-- [ ] Ensure the frontend never infers events absent from backend data.
+- [x] Normalize backend lifecycle events from scenario evidence.
+- [x] Add transaction timeline UI with RBF, CPFP, and timelock relationships.
+- [x] Ensure the frontend never infers events absent from backend data.
 
 ### Phase 7 - Curriculum and Challenge Mode
 
-- [ ] Map LBCLI Chapters 3-13 only to implemented features.
-- [ ] Add at least four Core-validated challenges with progressive hints.
-- [ ] Reuse scenario assertions and evidence exports for challenge completion.
-- [ ] Verify accessibility and keyboard navigation.
+- [x] Map LBCLI Chapters 3-13 only to implemented features.
+- [x] Add at least four Core-validated challenges with progressive hints.
+- [x] Reuse scenario assertions and evidence exports for challenge completion.
+- [x] Implement accessible native controls, focus management, and keyboard navigation; rerun interactive browser automation when a browser surface is available.
 
 ### Phase 8 - Policy comparison
 
@@ -449,4 +450,4 @@ Do not assume the flagship three-branch policy is supported. Implement the prove
 
 ## Current delivery status
 
-Phases 1 and 2 and the mandatory Phase 3 foundation are implemented. Transaction lifecycle, RBF replacement, multisig PSBT, and real absolute-height CLTV runs now use typed definitions, persistent state, protected mutation routes, deterministic proof bundles, proved negative paths, session-owned cleanup, and disposable Core 28.1 live tests. Optional CPFP and OP_RETURN scenarios remain deferred while Phase 4 policy research begins.
+Phases 1 through 7 are implemented. Transaction lifecycle, RBF replacement, multisig PSBT, real absolute-height CLTV, and Community Treasury Recovery use typed definitions, persistent state, protected mutation routes, deterministic proof bundles, proved negative paths, session-owned cleanup, and disposable Core 28.1 live tests. The flagship treasury additionally exports a specialized Proof of Spendability with exact compatibility, policy, branch, expected-rejection, evidence, and cleanup checks. The shared attack and lifecycle frameworks preserve bounded Core evidence and render recorded relationships without frontend inference. Curriculum mapping covers LBCLI Chapters 3-13 using only implemented pages and scenarios. Six progressively hinted challenges validate owner-scoped scenario runs, assertions, cleanup, Core identity, and canonical artifact hashes before unlocking final explanations or completion exports. Optional CPFP and OP_RETURN scenarios remain deferred. Phase 8's typed policy comparison is next.

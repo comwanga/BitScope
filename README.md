@@ -95,11 +95,20 @@ Regtest is the recommended development and demo network.
    txindex=1
    ```
 
-2. Start Bitcoin Core.
+2. Start Bitcoin Core. Use the first command for the normal regtest node, or the second for an RPC-only local node with inbound P2P disabled.
 
    ```bash
    bitcoind -regtest -daemon
-   bitcoin-cli -regtest getblockchaininfo
+   ```
+
+   ```bash
+   bitcoind -regtest -daemon -listen=0
+   ```
+
+   Wait for RPC readiness and inspect the chain:
+
+   ```bash
+   bitcoin-cli -regtest -rpcwait -rpcwaittimeout=30 getblockchaininfo
    ```
 
 3. Configure and run the backend.

@@ -80,13 +80,28 @@ Services keep Bitcoin-specific behavior out of route handlers:
 - `ScriptService`: script decoding, script templates, transaction policy testing, and OP_RETURN transaction building.
 - `PsbtService`: PSBT creation, decode, wallet processing, signing, finalization, and extraction.
 - `MultisigService`: regtest multisig creation, funding, and PSBT-backed spending.
-- `TimelockService`: nLockTime, CLTV, CSV, sequence, and mempool preflight.
+- `TimelockService`: nLockTime and script templates plus real P2WSH CLTV policy funding, local BIP143 signing with an ephemeral in-memory key, and Core mempool preflight.
 - `DescriptorService`: descriptor checksums, normalization, address derivation, and wallet descriptors.
 - `TaprootService`: Taproot output and scriptPubKey inspection.
 - `IntegrationService`: JSON-RPC client examples, wallet RPC paths, SSE, and optional ZMQ configuration.
 - `KeyService`: public descriptor, xpub, derivation path, watch-only wallet, and hardware-wallet PSBT education.
 - `LearningService`: concept catalog and RPC method reference.
 - `LabSessionService`: SQLite-backed isolated lab ownership, resume, reset, export, and safe wallet cleanup.
+- `ScenarioCatalog`: immutable registry of reviewed, versioned scenario definitions and their run availability.
+- `ScenarioService`: ownership-scoped, optimistic-revision run creation, live regtest preparation, and dispatch to reviewed scenario-specific executors.
+- `TransactionLifecycleService`: the first executable scenario adapter. It uses only the session-owned wallet, rechecks regtest before every mutation, records structured Core output, and proves both a confirmed spend and a value-conservation rejection.
+- `RbfScenarioService`: proves opt-in sequence signaling, the original and replacement mempool states, Core's incremental-fee rejection, successful higher-fee replacement, original eviction, and replacement confirmation.
+- `MultisigPsbtScenarioService`: creates three session-owned one-key legacy signer wallets, proves that one signature cannot finalize a 2-of-3 PSBT, completes it with a second signer, and verifies preflight, broadcast, confirmation, evidence export, and owned-wallet cleanup.
+- `CltvTimelockScenarioService`: funds a real absolute-height P2WSH CLTV policy, pins premature and invalid-script rejections, advances regtest to the exact target, confirms the unchanged mature spend, drops its ephemeral signer reference, and exports redacted evidence.
+- `EvidenceService`: typed evidence capture that keeps Bitcoin Core output separate from BitScope interpretation, recursively redacts credentials and private-key material, emits canonical JSON, and attaches a hash-backed reference to the owning run.
+- `ScenarioArtifactStore`: bounded, run-scoped evidence files with server-generated paths, canonical-content checks, and SHA-256 verification on every read.
+- `ProofBundleService`: deterministic Markdown reports, conditional transcript/command/assertion files, SHA-256 manifests, and ZIP exports with fixed metadata. Bundles are evidence, not attestations or audits.
+
+Scenario runs are stored transactionally beside their owning lab sessions. Their identity fields and recorded histories are append-only, state changes use explicit transitions and revision checks, and reset creates a new run rather than rewriting the old run. Runs that may own resources cannot be reset or deleted until cleanup is recorded as complete.
+
+Reviewed executors persist `RUNNING`, `VERIFYING`, `CLEANING`, and terminal checkpoints through a shared orchestration contract. Evidence artifacts are written before the checkpoint that references them and removed if that metadata commit loses an optimistic-revision race. Both successful and failed executions attempt session-owned wallet cleanup; a cleanup error produces `CLEANUP_FAILED`, never a verified result.
+
+Preparing a run reuses the live network-safety check and atomically moves `created` to `ready` with a redacted `node.context` artifact. The artifact records the Core-reported chain, version, block height, BitScope interpretation, and credential-free reproduction commands; it does not claim that later scenario steps have executed.
 
 ## API Surface
 
@@ -101,6 +116,7 @@ All routes are prefixed with `/api`.
 | Addresses and indexing | `/addresses/{address}`, `/index/scan-address` |
 | Wallet and regtest | `/wallets`, `/wallets/create`, `/wallets/load`, `/wallets/{wallet_name}/balance`, `/wallets/{wallet_name}/address`, `/wallets/{wallet_name}/utxos`, `/wallets/{wallet_name}/transactions`, `/regtest/mine`, `/regtest/faucet`, `/demo/run` |
 | Persistent labs | `/labs`, `/labs/{session_id}`, `/labs/{session_id}/reset`, `/labs/{session_id}/export`, `/labs/{session_id}?confirm=true` |
+| Verified scenarios | `/scenarios`, `/scenarios/{scenario_id}`, `/scenarios/{scenario_id}/runs`, `/scenario-runs/{run_id}`, `/scenario-runs/{run_id}/advance`, `/scenario-runs/{run_id}/reset`, `/scenario-runs/{run_id}/evidence`, `/scenario-runs/{run_id}/report`, `/scenario-runs/{run_id}/bundle`, `/scenario-runs/{run_id}?confirm=true` |
 | Scripts and data | `/scripts/decode`, `/scripts/template`, `/scripts/test-spend`, `/scripts/create-op-return` |
 | PSBT, multisig, timelocks | `/psbt/create`, `/psbt/decode`, `/psbt/wallet-process`, `/psbt/finalize`, `/multisig/create`, `/multisig/fund`, `/multisig/spend-psbt`, `/timelocks/transaction`, `/timelocks/script-template` |
 | Descriptors and Taproot | `/descriptors/analyze`, `/descriptors/wallet/{wallet_name}`, `/taproot/inspect` |

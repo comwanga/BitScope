@@ -36,6 +36,22 @@ The live fixtures and session tests must:
 
 The pinned integration job currently enables Bitcoin Core 28.1's `create_bdb` compatibility because the multisig lesson exercises `addmultisigaddress`. This is an explicit compatibility constraint, not a recommendation for new wallet designs.
 
+The verified transaction-lifecycle test mines its 102 maturity blocks in bounded batches so each RPC stays within the normal request timeout. It selects two distinct mature outputs: one follows preflight, broadcast, mempool, confirmation, and decode; the other signs a one-satoshi overspend that pinned Core 28.1 rejects as `bad-txns-in-belowout`.
+
+The verified RBF test creates an original transaction at 2 sat/vB with `replaceable=true`, records its input sequences and `bip125-replaceable` mempool field, and asks `bumpfee` for the same observed rate. Pinned Core 28.1 returns RPC `-8` with structured old-fee and incremental-fee details. The scenario then adds 10 sat/vB, verifies the original is absent, observes the replacement, and confirms it.
+
+The verified multisig PSBT test creates three session-owned legacy wallets with one signer key each, registers the same native-SegWit 2-of-3 policy, and imports its address watch-only before funding. Both signer calls use `finalize=false`: the first must leave exactly one partial signature and no extracted transaction, while the second must expose two partial signatures. A separate finalizer call must return `complete=true` before Core accepts, broadcasts, and confirms the spend. The node must be started with `-deprecatedrpc=create_bdb`. These local wallet contexts demonstrate staged threshold mechanics, not independent custody or production key separation.
+
+The verified CLTV test funds a P2WSH `<height> OP_CHECKLOCKTIMEVERIFY OP_DROP <pubkey> OP_CHECKSIG` output and locally signs its BIP143 witness with an ephemeral in-memory key. Pinned Core 28.1 must report `non-final` before maturity, reject final-sequence and low-nLockTime variants with `Locktime requirement not satisfied`, accept the unchanged valid transaction at the exact target height, and confirm it. Cleanup drops the signer reference and no private key enters RPC or proof artifacts; Python does not guarantee immediate zeroization of released memory.
+
+The Community Treasury policy proof imports a public three-branch P2WSH Miniscript descriptor into a private-key-disabled coordinator wallet. Separate descriptor wallets contribute 2-of-3 operator, recovery, and emergency signatures through PSBTs. Core 28.1 must keep every one-signature PSBT incomplete, reject delayed transactions as `non-BIP68-final`, refuse finalization when sequence is below the script's `older()` value, and accept the unchanged recovery and emergency transactions after their relative block delays.
+
+The integrated `test_community_treasury_scenario_live.py` live test executes the registered 53-step scenario and exports the specialized Proof of Spendability twice. It requires 25 passed assertions, six precisely classified expected failures, complete session-owned cleanup, an exact Core 28.1 runtime, and byte-identical bundles.
+
+The same live test is the pinned attack-framework gate. Its proof bundle must contain nine `expected_failure` entries in `evidence/attacks.summary.json`, covering signature insufficiency, PSBT incompleteness, premature timelock execution, and sequence modification with bounded safe Core observations.
+
+It is also the pinned lifecycle-recorder gate. The deterministic bundle must contain 33 ordered lifecycle events: the policy setup, immediate/recovery/emergency transaction tracks, two independently recorded timelock maturities, and the final successful cleanup event. These events come from persisted backend evidence and are not reconstructed by the test or frontend.
+
 ## Common Failures
 
 ### Insufficient or Immature Funds
@@ -64,3 +80,4 @@ Before adding a live-node test:
 4. Assert observable results rather than fixed txids, addresses, or block hashes.
 5. Ensure cleanup still runs after failure.
 6. Update [Supported Bitcoin Core Versions](supported-bitcoin-core.md) if the workflow changes version requirements.
+7. Follow the closed-definition and evidence rules in [Authoring Verified Scenarios](verified-scenarios.md).

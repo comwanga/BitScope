@@ -1,7 +1,13 @@
 from pathlib import Path
 
 from app.rpc.client import BitcoinRpcClient
+from app.services.evidence_service import EvidenceService
 from app.services.multisig_service import MultisigService
+from app.services.proof_bundle_service import ProofBundleService
+from app.services.scenario_artifact_store import ScenarioArtifactStore
+from app.services.scenario_catalog import DEFAULT_SCENARIO_CATALOG
+from app.services.scenario_run_store import ScenarioRunStore
+from app.services.scenario_service import ScenarioService
 from app.services.lab_session_service import LabSessionService
 from app.services.lab_session_store import LabSessionStore
 from app.services.psbt_service import PsbtService
@@ -53,6 +59,222 @@ def test_live_regtest_wallet_can_send_after_coinbase_maturity(
     block_hashes = live_rpc_client.call("generatetoaddress", [1, mining_address])
     assert isinstance(block_hashes, list)
     assert len(block_hashes) == 1
+
+
+def test_live_regtest_verified_transaction_lifecycle(
+    live_rpc_client: BitcoinRpcClient,
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "verified-lifecycle.sqlite3"
+    lab_store = LabSessionStore(str(database))
+    lab_service = LabSessionService(live_rpc_client, lab_store)
+    session = lab_service.create("transaction-lifecycle")
+    run_store = ScenarioRunStore(str(database))
+    artifacts = ScenarioArtifactStore(str(tmp_path / "scenario-artifacts"))
+    scenario_service = ScenarioService(
+        live_rpc_client,
+        run_store,
+        DEFAULT_SCENARIO_CATALOG,
+        EvidenceService.from_settings(live_rpc_client.settings),
+        artifacts,
+        lab_store,
+    )
+
+    try:
+        created = scenario_service.create_run("transaction-lifecycle", session.session_id)
+        ready = scenario_service.advance(created.run_id, session.session_id, expected_revision=0)
+        verified = scenario_service.advance(ready.run_id, session.session_id, expected_revision=1)
+
+        assert verified.current_state.value == "verified"
+        assert verified.cleanup_status.value == "completed"
+        assert [failure.code for failure in verified.expected_failures] == ["bad-txns-in-belowout"]
+        assert all(result.status.value == "passed" for result in verified.assertion_results)
+
+        bundle = ProofBundleService(
+            run_store,
+            artifacts,
+            DEFAULT_SCENARIO_CATALOG,
+        ).bundle(verified.run_id, session.session_id)
+        assert bundle.manifest.final_result is not None
+        assert bundle.manifest.final_result.value == "verified"
+        assert "evidence/transaction.confirmed.json" in bundle.files
+        assert "evidence/transaction.overspend-rejection.json" in bundle.files
+    finally:
+        persisted = lab_store.get(session.session_id)
+        if persisted is not None and persisted.status == "active":
+            lab_service.cleanup(session.session_id)
+
+
+def test_live_regtest_verified_rbf_replacement(
+    live_rpc_client: BitcoinRpcClient,
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "verified-rbf.sqlite3"
+    lab_store = LabSessionStore(str(database))
+    lab_service = LabSessionService(live_rpc_client, lab_store)
+    session = lab_service.create("rbf-replacement")
+    run_store = ScenarioRunStore(str(database))
+    artifacts = ScenarioArtifactStore(str(tmp_path / "scenario-artifacts"))
+    scenario_service = ScenarioService(
+        live_rpc_client,
+        run_store,
+        DEFAULT_SCENARIO_CATALOG,
+        EvidenceService.from_settings(live_rpc_client.settings),
+        artifacts,
+        lab_store,
+    )
+
+    try:
+        created = scenario_service.create_run("rbf-replacement", session.session_id)
+        ready = scenario_service.advance(created.run_id, session.session_id, expected_revision=0)
+        verified = scenario_service.advance(ready.run_id, session.session_id, expected_revision=1)
+
+        assert verified.current_state.value == "verified"
+        assert verified.cleanup_status.value == "completed"
+        assert [failure.code for failure in verified.expected_failures] == [
+            "insufficient-replacement-fee"
+        ]
+        assert verified.expected_failures[0].rpc_code == -8
+        assert all(result.status.value == "passed" for result in verified.assertion_results)
+
+        session_after = lab_store.get(session.session_id)
+        assert session_after is not None
+        assert len(session_after.transaction_ids) == 2
+        assert session_after.transaction_ids[0] != session_after.transaction_ids[1]
+
+        bundle = ProofBundleService(
+            run_store,
+            artifacts,
+            DEFAULT_SCENARIO_CATALOG,
+        ).bundle(verified.run_id, session.session_id)
+        assert bundle.manifest.final_result is not None
+        assert bundle.manifest.final_result.value == "verified"
+        assert "evidence/rbf.insufficient-fee.json" in bundle.files
+        assert "evidence/rbf.replacement.json" in bundle.files
+        assert "evidence/rbf.confirmed.json" in bundle.files
+    finally:
+        persisted = lab_store.get(session.session_id)
+        if persisted is not None and persisted.status == "active":
+            lab_service.cleanup(session.session_id)
+
+
+def test_live_regtest_verified_multisig_psbt(
+    live_rpc_client: BitcoinRpcClient,
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "verified-multisig-psbt.sqlite3"
+    lab_store = LabSessionStore(str(database))
+    lab_service = LabSessionService(live_rpc_client, lab_store)
+    session = lab_service.create("multisig-psbt")
+    run_store = ScenarioRunStore(str(database))
+    artifacts = ScenarioArtifactStore(str(tmp_path / "scenario-artifacts"))
+    scenario_service = ScenarioService(
+        live_rpc_client,
+        run_store,
+        DEFAULT_SCENARIO_CATALOG,
+        EvidenceService.from_settings(live_rpc_client.settings),
+        artifacts,
+        lab_store,
+    )
+
+    try:
+        created = scenario_service.create_run("multisig-psbt", session.session_id)
+        ready = scenario_service.advance(created.run_id, session.session_id, expected_revision=0)
+        verified = scenario_service.advance(ready.run_id, session.session_id, expected_revision=1)
+
+        assert verified.current_state.value == "verified"
+        assert verified.cleanup_status.value == "completed"
+        assert [failure.code for failure in verified.expected_failures] == [
+            "insufficient-signatures"
+        ]
+        assert verified.expected_failures[0].category.value == "psbt_incomplete"
+        assert all(result.status.value == "passed" for result in verified.assertion_results)
+
+        session_after = lab_store.get(session.session_id)
+        assert session_after is not None
+        assert session_after.status == "cleaned"
+        assert len(session_after.owned_wallets) == 4
+        assert len(session_after.transaction_ids) == 2
+        assert len(session_after.block_hashes) == 103
+
+        bundle = ProofBundleService(
+            run_store,
+            artifacts,
+            DEFAULT_SCENARIO_CATALOG,
+        ).bundle(verified.run_id, session.session_id)
+        assert bundle.manifest.final_result is not None
+        assert bundle.manifest.final_result.value == "verified"
+        assert "evidence/psbt.partial.json" in bundle.files
+        assert "evidence/psbt.complete.json" in bundle.files
+        assert "evidence/multisig.confirmed.json" in bundle.files
+    finally:
+        persisted = lab_store.get(session.session_id)
+        if persisted is not None and persisted.status == "active":
+            lab_service.cleanup(session.session_id)
+
+
+def test_live_regtest_verified_cltv_timelock(
+    live_rpc_client: BitcoinRpcClient,
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "verified-cltv-timelock.sqlite3"
+    lab_store = LabSessionStore(str(database))
+    lab_service = LabSessionService(live_rpc_client, lab_store)
+    session = lab_service.create("cltv-timelock")
+    run_store = ScenarioRunStore(str(database))
+    artifacts = ScenarioArtifactStore(str(tmp_path / "scenario-artifacts"))
+    scenario_service = ScenarioService(
+        live_rpc_client,
+        run_store,
+        DEFAULT_SCENARIO_CATALOG,
+        EvidenceService.from_settings(live_rpc_client.settings),
+        artifacts,
+        lab_store,
+    )
+
+    try:
+        created = scenario_service.create_run("cltv-timelock", session.session_id)
+        ready = scenario_service.advance(created.run_id, session.session_id, expected_revision=0)
+        verified = scenario_service.advance(ready.run_id, session.session_id, expected_revision=1)
+
+        assert verified.current_state.value == "verified"
+        assert verified.cleanup_status.value == "completed"
+        assert [failure.code for failure in verified.expected_failures] == [
+            "non-final",
+            "cltv-final-sequence",
+            "cltv-low-locktime",
+        ]
+        assert [failure.category.value for failure in verified.expected_failures] == [
+            "mempool_policy",
+            "script_verification",
+            "script_verification",
+        ]
+        assert all(result.status.value == "passed" for result in verified.assertion_results)
+
+        session_after = lab_store.get(session.session_id)
+        assert session_after is not None
+        assert session_after.status == "cleaned"
+        assert session_after.transaction_ids[0] != session_after.transaction_ids[1]
+        assert len(session_after.block_hashes) == 106
+
+        bundle = ProofBundleService(
+            run_store,
+            artifacts,
+            DEFAULT_SCENARIO_CATALOG,
+        ).bundle(verified.run_id, session.session_id)
+        assert bundle.manifest.final_result is not None
+        assert bundle.manifest.final_result.value == "verified"
+        assert "evidence/cltv.premature.json" in bundle.files
+        assert "evidence/cltv.invalid-sequence.json" in bundle.files
+        assert "evidence/cltv.invalid-locktime.json" in bundle.files
+        assert "evidence/cltv.mature.json" in bundle.files
+        assert "evidence/cltv.confirmed.json" in bundle.files
+        assert b"private" not in bundle.files["evidence/cltv.policy-funding.json"].lower()
+    finally:
+        scenario_service.cltv_timelock_service.timelock_service.clear_ephemeral_cltv_keys()
+        persisted = lab_store.get(session.session_id)
+        if persisted is not None and persisted.status == "active":
+            lab_service.cleanup(session.session_id)
 
 
 def test_live_regtest_advanced_transaction_workflows(

@@ -59,6 +59,19 @@ def test_wallet_read_capability_allows_balance_but_rejects_mutation() -> None:
     assert transport.calls == [("getbalances", None, "demo")]
 
 
+def test_regtest_mutation_capability_includes_reviewed_treasury_methods() -> None:
+    transport = RecordingTransport()
+    rpc = RegtestMutationRpcClient(transport)
+
+    assert rpc.call("createpsbt", [[], []]) == {"method": "createpsbt"}
+    assert rpc.call("importdescriptors", [[]], wallet_name="coordinator") == {"method": "importdescriptors"}
+
+    assert transport.calls == [
+        ("createpsbt", [[], []], None),
+        ("importdescriptors", [[]], "coordinator"),
+    ]
+
+
 @pytest.mark.parametrize("method", sorted(FORBIDDEN_RPC_METHODS))
 def test_forbidden_methods_are_rejected_by_most_powerful_capability(method: str) -> None:
     transport = RecordingTransport()

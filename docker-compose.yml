@@ -53,6 +53,7 @@ services:
       MAX_REQUEST_BODY_BYTES: "1048576"
       BITSCOPE_LOCAL_ACCESS_TOKEN: ${BITSCOPE_LOCAL_ACCESS_TOKEN:-replace-with-a-random-local-token}
       LAB_SESSION_DATABASE_PATH: /data/lab-sessions.sqlite3
+      SCENARIO_ARTIFACT_ROOT: /data/scenario-artifacts
     volumes:
       - bitscope-sessions:/data
     ports:
